@@ -2,7 +2,7 @@ name: Deploy home tour to Pages
 
 on:
   push:
-    branches: [cursor/revit-workflow-guides]
+    branches: [main, cursor/revit-workflow-guides]
     paths:
       - 'revit-to-home-tour/run/sales-page-v2/**'
       - '.github/workflows/pages.yml'
