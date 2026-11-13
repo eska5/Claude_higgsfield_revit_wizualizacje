@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Snowdon Towers — Home Tour</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #f4f6fa;
+      --muted: #9aa6b8;
+      --line: rgba(255, 255, 255, 0.12);
+      --glass: blur(18px) saturate(1.2);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: "DM Sans", system-ui, sans-serif;
+      color: var(--ink);
+      background: #05070b;
+      overflow: hidden;
+    }
+    button { font: inherit; }
+    .app {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: #000;
+    }
+    .stage {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: radial-gradient(ellipse at center, #121826 0%, #05070b 70%);
+    }
+    .plate {
+      position: relative;
+      width: min(100vw, calc(100vh * 1344 / 752));
+      height: min(100vh, calc(100vw * 752 / 1344));
+      overflow: hidden;
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+      transform-origin: center center;
+      transition: transform 700ms cubic-bezier(0.22, 1, 0.36, 1), filter 500ms ease;
+    }
+    .plate.is-zooming {
+      transform: scale(1.04);
+      filter: brightness(1.05);
+    }
+    .plate .layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: fill;
+      opacity: 0;
+      transition: opacity 550ms ease;
+      pointer-events: none;
+    }
+    .plate .layer.is-on { opacity: 1; }
+    .overlay-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .floor-poly {
+      fill: transparent;
+      stroke: transparent;
+      stroke-width: 0.22;
+      vector-effect: non-scaling-stroke;
+      pointer-events: auto;
+      cursor: pointer;
+      transition: fill 180ms ease, stroke 180ms ease, filter 180ms ease;
+    }
+    .floor-poly:hover,
+    .floor-poly.is-active,
+    .floor-poly:focus-visible {
+      fill: rgba(255, 255, 255, 0.14);
+      stroke: rgba(255, 245, 210, 0.95);
+      filter: drop-shadow(0 0 6px rgba(255, 230, 160, 0.55));
+      outline: none;
+    }
+    .topbar {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1rem 1.25rem;
+      pointer-events: none;
+    }
+    .topbar > * { pointer-events: auto; }
+    .logo {
+      font-family: "Instrument Serif", Georgia, serif;
+      font-size: 1.4rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .nav, .units, .chip, .btn, .floor-rail, .sheet, .home-card, .interior-card, .tip {
+      background: rgba(8, 10, 16, 0.55);
+      border: 1px solid var(--line);
+      backdrop-filter: var(--glass);
+    }
+    .nav {
+      display: flex;
+      gap: 0.3rem;
+      padding: 0.25rem;
+      border-radius: 999px;
+    }
+    .nav button {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      padding: 0.55rem 1rem;
+      border-radius: 999px;
+      cursor: pointer;
+      min-height: 44px;
+    }
+    .nav button[aria-current="page"] {
+      background: rgba(255, 255, 255, 0.92);
+      color: #111;
+      font-weight: 600;
+    }
+    .top-actions { display: flex; gap: 0.5rem; align-items: center; }
+    .btn, .chip {
+      border-radius: 999px;
+      color: var(--ink);
+      padding: 0.55rem 1rem;
+      min-height: 44px;
+      cursor: pointer;
+    }
+    .btn.primary {
+      background: #fff;
+      color: #111;
+      border-color: transparent;
+      font-weight: 600;
+    }
+    .btn.ghost { background: transparent; }
+    .units {
+      display: inline-flex;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .units button {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      padding: 0.55rem 0.85rem;
+      cursor: pointer;
+      min-height: 44px;
+    }
+    .units button[aria-pressed="true"] {
+      background: rgba(255, 255, 255, 0.14);
+      color: #fff;
+    }
+    .tip {
+      position: absolute;
+      z-index: 20;
+      min-width: 9.5rem;
+      padding: 0.7rem 0.9rem;
+      border-radius: 14px;
+      transform: translate(-50%, -120%);
+      pointer-events: none;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    }
+    .tip strong { display: block; }
+    .tip span {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin-top: 0.15rem;
+    }
+    .tip .dot {
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: #6fdf8c;
+    }
+    .sheet {
+      position: absolute;
+      left: 1rem; right: 1rem; bottom: 1rem;
+      z-index: 25;
+      max-width: 920px;
+      margin: 0 auto;
+      border-radius: 22px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      transition: transform 280ms ease, opacity 280ms ease;
+    }
+    .sheet.hidden { opacity: 0; pointer-events: none; transform: translateY(18px); }
+    .sheet-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1rem 1.15rem 0.55rem;
+    }
+    .sheet-head h2 { margin: 0; font-size: 1.15rem; }
+    .filters {
+      display: flex;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+      padding: 0 1.15rem 0.75rem;
+    }
+    .filters button {
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 0.4rem 0.8rem;
+      cursor: pointer;
+      min-height: 40px;
+    }
+    .filters button[aria-pressed="true"] {
+      background: rgba(255, 255, 255, 0.92);
+      color: #111;
+      border-color: transparent;
+    }
+    .table-wrap {
+      max-height: min(38vh, 320px);
+      overflow: auto;
+      padding: 0 0.5rem 0.5rem;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+    th {
+      text-align: left;
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 0.78rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 0.55rem 0.75rem;
+      position: sticky;
+      top: 0;
+      background: rgba(10, 14, 22, 0.95);
+    }
+    td { padding: 0.75rem; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+    tbody tr { cursor: pointer; transition: background 140ms ease; }
+    tbody tr:hover { background: rgba(255, 255, 255, 0.04); }
+    tbody tr.is-active { background: rgba(255, 255, 255, 0.92); color: #111; }
+    tbody tr.is-active td { border-top-color: transparent; }
+    .pin {
+      position: absolute;
+      z-index: 18;
+      transform: translate(-50%, -50%);
+      width: 2.4rem;
+      height: 2.4rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.45);
+      background: rgba(10, 12, 18, 0.72);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 0.78rem;
+      font-weight: 600;
+      backdrop-filter: blur(8px);
+      cursor: pointer;
+      min-width: 44px;
+      min-height: 44px;
+      transition: transform 150ms ease, background 150ms ease, color 150ms ease;
+    }
+    .pin:hover, .pin.is-active, .pin:focus-visible {
+      background: #fff;
+      color: #111;
+      transform: translate(-50%, -50%) scale(1.06);
+      outline: none;
+    }
+    .floor-rail {
+      position: absolute;
+      right: 1rem;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 22;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      padding: 0.35rem;
+      border-radius: 999px;
+    }
+    .floor-rail.hidden { display: none; }
+    .floor-rail button {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      width: 2.75rem;
+      height: 2.75rem;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+    .floor-rail button[aria-pressed="true"] {
+      background: #fff;
+      color: #111;
+      font-weight: 700;
+    }
+    .home-card {
+      position: absolute;
+      left: 1rem; right: 1rem; bottom: 1rem;
+      z-index: 26;
+      max-width: 720px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1rem 1.1rem;
+      border-radius: 20px;
+    }
+    .home-card.hidden { display: none; }
+    .home-card h3 { margin: 0; font-size: 1.2rem; }
+    .home-card p { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.92rem; }
+    .home-card .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .interior-card {
+      position: absolute;
+      left: 1rem; bottom: 1rem;
+      z-index: 26;
+      max-width: 22rem;
+      padding: 1rem 1.1rem;
+      border-radius: 18px;
+    }
+    .interior-card.hidden { display: none; }
+    .interior-card h3 {
+      margin: 0 0 0.35rem;
+      font-family: "Instrument Serif", Georgia, serif;
+      font-size: 1.5rem;
+      font-weight: 400;
+    }
+    .interior-card p { margin: 0; color: var(--muted); line-height: 1.45; }
+    .back-btn {
+      position: absolute;
+      top: 1rem; right: 1rem;
+      z-index: 28;
+    }
+    .back-btn.hidden { display: none; }
+    .view-label {
+      position: absolute;
+      top: 5.2rem; left: 1.25rem;
+      z-index: 20;
+      color: var(--muted);
+      font-size: 0.85rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    @media (max-width: 720px) {
+      .nav { display: none; }
+      .sheet { left: 0.5rem; right: 0.5rem; bottom: 0.5rem; }
+      .home-card { flex-direction: column; align-items: stretch; }
+      .home-card .actions .btn { flex: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="stage">
+      <div class="plate" id="plate">
+        <video class="layer" id="hero-video" muted playsinline loop autoplay poster="media/dusk-aerial.png?v=2"></video>
+        <img class="layer" id="view-aerial" src="media/dusk-aerial.png?v=2" alt="Snowdon Towers aerial at dusk" />
+        <img class="layer" id="view-cut" src="media/dusk-cut-l4.png?v=2" alt="Section cut at dusk" />
+        <img class="layer" id="view-rooftop" src="media/dusk-rooftop.png?v=2" alt="Rooftop at dusk" />
+        <img class="layer" id="view-street" src="media/dusk-street.png?v=2" alt="Street at dusk" />
+        <img class="layer" id="view-loft" src="media/dusk-loft.png?v=2" alt="Loft 405 interior" />
+        <svg class="overlay-svg" id="floor-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div id="pins"></div>
+        <div class="tip" id="tip" hidden>
+          <strong id="tip-level">Level 4</strong>
+          <span><i class="dot" aria-hidden="true"></i><span id="tip-count">8 homes</span></span>
+        </div>
+      </div>
+    </div>
+
+    <header class="topbar">
+      <div class="logo">Snowdon Towers</div>
+      <nav class="nav" aria-label="Sections">
+        <button type="button" data-nav="homes" aria-current="page">Homes</button>
+        <button type="button" data-nav="rooftop">Rooftop</button>
+        <button type="button" data-nav="street">Street</button>
+      </nav>
+      <div class="top-actions">
+        <div class="units" role="group" aria-label="Area units">
+          <button type="button" id="unit-sqft" aria-pressed="true">sq ft</button>
+          <button type="button" id="unit-sqm" aria-pressed="false">m²</button>
+        </div>
+        <button type="button" class="btn primary" id="contact-btn">Contact</button>
+      </div>
+    </header>
+
+    <div class="view-label" id="view-label">Aerial · hover a floor</div>
+
+    <div class="floor-rail hidden" id="floor-rail" aria-label="Floor">
+      <button type="button" data-rail="L5">L5</button>
+      <button type="button" data-rail="L4" aria-pressed="true">L4</button>
+      <button type="button" data-rail="L3">L3</button>
+      <button type="button" data-rail="L2">L2</button>
+    </div>
+
+    <section class="sheet" id="homes-sheet" aria-labelledby="sheet-title">
+      <div class="sheet-head">
+        <h2 id="sheet-title">Select your home</h2>
+        <span class="chip" id="sheet-meta">21 homes</span>
+      </div>
+      <div class="filters" id="filters">
+        <button type="button" data-filter="ALL" aria-pressed="true">All</button>
+        <button type="button" data-filter="L5">L5</button>
+        <button type="button" data-filter="L4">L4</button>
+        <button type="button" data-filter="L3">L3</button>
+        <button type="button" data-filter="L2">L2</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Home</th>
+              <th>Floor</th>
+              <th id="th-area">ft²</th>
+              <th>Type</th>
+            </tr>
+          </thead>
+          <tbody id="homes-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <aside class="home-card hidden" id="home-card">
+      <div>
+        <h3 id="card-title">Home 405</h3>
+        <p id="card-sub">Live/work loft · L4 · 723 ft²</p>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn primary" id="walk-btn">Walk inside</button>
+        <button type="button" class="btn ghost" id="book-btn">Book a call</button>
+      </div>
+    </aside>
+
+    <aside class="interior-card hidden" id="interior-card">
+      <h3 id="interior-title">Live/work loft</h3>
+      <p id="interior-copy">A double-height room under the steel trusses, with a glass stair up to the mezzanine.</p>
+    </aside>
+
+    <button type="button" class="btn chip back-btn hidden" id="back-btn">Back to the plan</button>
+  </div>
+
+  <script>
+    const SQM = 0.092903
+    let useSqm = false
+    let mode = 'homes'
+    let filter = 'ALL'
+    let activeLevel = 'L4'
+    let activeHome = null
+    let cutPlaying = false
+
+    const floorOutlines = {
+      L5: [[36.5,27],[44,24.8],[54.5,27.5],[64,31.5],[70.5,35.5],[71.8,40.5],[68.5,43.8],[58.5,40.5],[48,36.8],[39.5,33.2],[36.8,30]],
+      L4: [[35.5,33],[43,30.5],[54,33.2],[64,37.5],[71,42],[72.5,47.5],[69,51.5],[58,48],[47,43.8],[38.5,39.5],[35.8,36]],
+      L3: [[34.5,39.5],[42.2,36.8],[53.5,39.5],[64,44.5],[71.2,49.5],[72.8,55.5],[69,60],[57.5,56],[46,51.2],[37.5,46.5],[34.8,42.5]],
+      L2: [[33.8,46.5],[41.5,43.5],[53,46.5],[64,52],[71.5,57.5],[73,64],[69,68.5],[57,64],[45,58.8],[36.5,53.5],[34,49.5]]
+    }
+
+    const homes = [
+      { num: '202', level: 'L2', type: 'Live/work', area: 838.87 },
+      { num: '203', level: 'L2', type: 'Studio', area: 592.88 },
+      { num: '204', level: 'L2', type: '2-storey', area: 569.39 },
+      { num: '205', level: 'L2', type: 'Live/work', area: 1105.16 },
+      { num: '303', level: 'L3', type: 'Live/work', area: 839.50 },
+      { num: '304', level: 'L3', type: 'Studio', area: 592.88 },
+      { num: '306', level: 'L3', type: 'Live/work', area: 1145.41 },
+      { num: '307', level: 'L3', type: 'Live/work', area: 1105.16 },
+      { num: '308', level: 'L3', type: 'Live/work', area: 583.11 },
+      { num: '309', level: 'L3', type: 'Live/work', area: 766.00 },
+      { num: '403', level: 'L4', type: 'Live/work', area: 839.88 },
+      { num: '404', level: 'L4', type: 'Studio', area: 592.88 },
+      { num: '405', level: 'L4', type: 'Live/work loft', area: 722.91, interior: true, blurb: 'A double-height room under the steel trusses, with a glass stair up to the mezzanine.' },
+      { num: '406', level: 'L4', type: '2-storey', area: 570.27 },
+      { num: '407', level: 'L4', type: 'Live/work', area: 1145.74 },
+      { num: '408', level: 'L4', type: 'Live/work', area: 1105.16 },
+      { num: '409', level: 'L4', type: 'Live/work', area: 582.91 },
+      { num: '410', level: 'L4', type: 'Live/work', area: 767.60 },
+      { num: '504', level: 'L5', type: 'Studio', area: 592.88 },
+      { num: '506', level: 'L5', type: 'Live/work', area: 1105.16 },
+      { num: '507', level: 'L5', type: 'Live/work', area: 914.52 }
+    ]
+
+    const pinLayout = {
+      L5: { '504': [42, 48], '506': [58, 52], '507': [72, 56] },
+      L4: { '403': [38, 44], '404': [46, 47], '405': [54, 50], '406': [60, 48], '407': [66, 52], '408': [72, 55], '409': [42, 54], '410': [50, 56] },
+      L3: { '303': [40, 50], '304': [48, 53], '306': [58, 55], '307': [66, 57], '308': [44, 58], '309': [52, 60] },
+      L2: { '202': [42, 58], '203': [52, 62], '204': [60, 64], '205': [70, 66] }
+    }
+
+    const cutSrc = {
+      L5: 'media/dusk-cut-l5.png?v=2',
+      L4: 'media/dusk-cut-l4.png?v=2',
+      L3: 'media/dusk-cut-l3.png?v=2',
+      L2: 'media/dusk-cut-l2.png?v=2'
+    }
+
+    const formatArea = (sqft) => useSqm
+      ? Math.round(sqft * SQM).toLocaleString()
+      : Math.round(sqft).toLocaleString()
+
+    const countOn = (level) => homes.filter((h) => h.level === level).length
+
+    const buildOutlines = () => {
+      const svg = document.getElementById('floor-svg')
+      svg.innerHTML = ''
+      ;['L5', 'L4', 'L3', 'L2'].forEach((level) => {
+        const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon')
+        poly.setAttribute('class', 'floor-poly')
+        poly.setAttribute('data-level', level)
+        poly.setAttribute('tabindex', '0')
+        poly.setAttribute('aria-label', 'Level ' + level.replace('L', '') + ', ' + countOn(level) + ' homes')
+        poly.setAttribute('points', floorOutlines[level].map((p) => p[0] + ',' + p[1]).join(' '))
+        svg.appendChild(poly)
+      })
+      bindFloorPolys()
+    }
+
+    const showLayer = (id) => {
+      document.querySelectorAll('.plate .layer').forEach((el) => el.classList.remove('is-on'))
+      const el = document.getElementById(id)
+      if (el) el.classList.add('is-on')
+    }
+
+    const setTip = (level, x, y) => {
+      const tip = document.getElementById('tip')
+      tip.hidden = false
+      document.getElementById('tip-level').textContent = 'Level ' + level.replace('L', '')
+      document.getElementById('tip-count').textContent = countOn(level) + ' homes'
+      const plate = document.getElementById('plate').getBoundingClientRect()
+      tip.style.left = (x - plate.left) + 'px'
+      tip.style.top = (y - plate.top) + 'px'
+    }
+
+    const renderTable = () => {
+      const body = document.getElementById('homes-body')
+      const list = homes.filter((h) => filter === 'ALL' || h.level === filter)
+      body.innerHTML = ''
+      list.forEach((h) => {
+        const tr = document.createElement('tr')
+        if (activeHome && activeHome.num === h.num) tr.className = 'is-active'
+        tr.innerHTML = '<td>' + h.num + '</td><td>' + h.level + '</td><td>' + formatArea(h.area) + '</td><td>' + h.type + '</td>'
+        tr.addEventListener('click', () => selectHome(h, true))
+        body.appendChild(tr)
+      })
+      document.getElementById('th-area').textContent = useSqm ? 'm²' : 'ft²'
+      document.getElementById('sheet-meta').textContent = list.length + ' homes'
+    }
+
+    const renderPins = () => {
+      const root = document.getElementById('pins')
+      root.innerHTML = ''
+      if (mode !== 'plan') return
+      const layout = pinLayout[activeLevel] || {}
+      Object.keys(layout).forEach((num) => {
+        const [x, y] = layout[num]
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'pin' + (activeHome && activeHome.num === num ? ' is-active' : '')
+        btn.style.left = x + '%'
+        btn.style.top = y + '%'
+        btn.textContent = num
+        btn.setAttribute('aria-label', 'Home ' + num)
+        btn.addEventListener('click', () => {
+          const h = homes.find((item) => item.num === num)
+          if (h) selectHome(h, false)
+        })
+        root.appendChild(btn)
+      })
+    }
+
+    const pulsePlate = () => {
+      const plate = document.getElementById('plate')
+      plate.classList.add('is-zooming')
+      setTimeout(() => plate.classList.remove('is-zooming'), 700)
+    }
+
+    const playCutTo = async (level) => {
+      if (cutPlaying) return
+      cutPlaying = true
+      const order = ['L5', 'L4', 'L3', 'L2']
+      const end = order.indexOf(level)
+      document.getElementById('homes-sheet').classList.add('hidden')
+      document.getElementById('floor-svg').style.display = 'none'
+      document.getElementById('tip').hidden = true
+      document.getElementById('hero-video').pause()
+      showLayer('view-cut')
+      document.getElementById('view-label').textContent = 'Section cut'
+      pulsePlate()
+      for (let i = 0; i <= end; i += 1) {
+        document.getElementById('view-cut').src = cutSrc[order[i]]
+        await new Promise((r) => setTimeout(r, 340))
+      }
+      cutPlaying = false
+      enterPlan(level)
+    }
+
+    const enterPlan = (level) => {
+      mode = 'plan'
+      activeLevel = level
+      document.getElementById('view-cut').src = cutSrc[level]
+      showLayer('view-cut')
+      document.getElementById('floor-svg').style.display = 'none'
+      document.getElementById('homes-sheet').classList.add('hidden')
+      document.getElementById('home-card').classList.remove('hidden')
+      document.getElementById('interior-card').classList.add('hidden')
+      document.getElementById('back-btn').classList.add('hidden')
+      document.getElementById('floor-rail').classList.remove('hidden')
+      document.getElementById('view-label').textContent = 'Plan · ' + level
+      document.querySelectorAll('#floor-rail button').forEach((b) => {
+        b.setAttribute('aria-pressed', String(b.dataset.rail === level))
+      })
+      renderPins()
+      updateCard()
+    }
+
+    const enterHomesAerial = () => {
+      mode = 'homes'
+      const video = document.getElementById('hero-video')
+      if (video.src) {
+        showLayer('hero-video')
+        video.play().catch(() => showLayer('view-aerial'))
+      } else {
+        showLayer('view-aerial')
+      }
+      document.getElementById('floor-svg').style.display = ''
+      document.getElementById('homes-sheet').classList.remove('hidden')
+      document.getElementById('home-card').classList.add('hidden')
+      document.getElementById('interior-card').classList.add('hidden')
+      document.getElementById('back-btn').classList.add('hidden')
+      document.getElementById('floor-rail').classList.add('hidden')
+      document.getElementById('pins').innerHTML = ''
+      document.getElementById('view-label').textContent = 'Aerial · hover a floor'
+      document.getElementById('tip').hidden = true
+    }
+
+    const enterInterior = () => {
+      if (!activeHome) return
+      mode = 'interior'
+      showLayer('view-loft')
+      document.getElementById('home-card').classList.add('hidden')
+      document.getElementById('floor-rail').classList.add('hidden')
+      document.getElementById('pins').innerHTML = ''
+      document.getElementById('interior-card').classList.remove('hidden')
+      document.getElementById('back-btn').classList.remove('hidden')
+      document.getElementById('view-label').textContent = 'Inside · Home ' + activeHome.num
+      document.getElementById('interior-title').textContent = activeHome.type
+      document.getElementById('interior-copy').textContent = activeHome.blurb || (activeHome.type + ' on ' + activeHome.level + '.')
+      document.getElementById('view-loft').src = activeHome.interior
+        ? 'media/dusk-loft.png?v=2'
+        : cutSrc[activeHome.level]
+      pulsePlate()
+    }
+
+    const updateCard = () => {
+      if (!activeHome) return
+      document.getElementById('card-title').textContent = 'Home ' + activeHome.num
+      document.getElementById('card-sub').textContent =
+        activeHome.type + ' · ' + activeHome.level + ' · ' + formatArea(activeHome.area) + (useSqm ? ' m²' : ' ft²')
+    }
+
+    const selectHome = (h, fromTable) => {
+      activeHome = h
+      activeLevel = h.level
+      filter = h.level
+      document.querySelectorAll('#filters button').forEach((b) => {
+        b.setAttribute('aria-pressed', String(b.dataset.filter === filter))
+      })
+      renderTable()
+      if (mode === 'homes' || fromTable) playCutTo(h.level)
+      else {
+        enterPlan(h.level)
+        updateCard()
+      }
+    }
+
+    const bindFloorPolys = () => {
+      document.querySelectorAll('.floor-poly').forEach((el) => {
+        const level = el.dataset.level
+        el.addEventListener('mousemove', (e) => setTip(level, e.clientX, e.clientY))
+        el.addEventListener('mouseenter', (e) => {
+          document.querySelectorAll('.floor-poly').forEach((p) => p.classList.remove('is-active'))
+          el.classList.add('is-active')
+          setTip(level, e.clientX, e.clientY)
+        })
+        el.addEventListener('mouseleave', () => {
+          if (!el.classList.contains('keep')) el.classList.remove('is-active')
+        })
+        el.addEventListener('click', () => {
+          filter = level
+          document.querySelectorAll('#filters button').forEach((b) => {
+            b.setAttribute('aria-pressed', String(b.dataset.filter === filter))
+          })
+          renderTable()
+          const first = homes.find((h) => h.level === filter)
+          if (first) selectHome(first, true)
+        })
+        el.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            el.click()
+          }
+        })
+      })
+    }
+
+    document.querySelectorAll('#filters button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        filter = btn.dataset.filter
+        document.querySelectorAll('#filters button').forEach((b) => {
+          b.setAttribute('aria-pressed', String(b.dataset.filter === filter))
+        })
+        renderTable()
+      })
+    })
+
+    document.querySelectorAll('[data-nav]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-nav]').forEach((b) => b.removeAttribute('aria-current'))
+        btn.setAttribute('aria-current', 'page')
+        const target = btn.dataset.nav
+        document.getElementById('homes-sheet').classList.add('hidden')
+        document.getElementById('home-card').classList.add('hidden')
+        document.getElementById('interior-card').classList.add('hidden')
+        document.getElementById('back-btn').classList.add('hidden')
+        document.getElementById('floor-rail').classList.add('hidden')
+        document.getElementById('pins').innerHTML = ''
+        document.getElementById('floor-svg').style.display = 'none'
+        document.getElementById('tip').hidden = true
+        document.getElementById('hero-video').pause()
+        pulsePlate()
+        if (target === 'homes') {
+          enterHomesAerial()
+          document.getElementById('homes-sheet').classList.remove('hidden')
+        } else if (target === 'rooftop') {
+          mode = 'rooftop'
+          showLayer('view-rooftop')
+          document.getElementById('view-label').textContent = 'Rooftop'
+        } else {
+          mode = 'street'
+          showLayer('view-street')
+          document.getElementById('view-label').textContent = 'Street'
+        }
+      })
+    })
+
+    document.querySelectorAll('#floor-rail button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const level = btn.dataset.rail
+        const first = homes.find((h) => h.level === level) || activeHome
+        activeLevel = level
+        if (first && first.level === level) activeHome = first
+        document.getElementById('view-cut').src = cutSrc[level]
+        pulsePlate()
+        enterPlan(level)
+        renderTable()
+      })
+    })
+
+    document.getElementById('walk-btn').addEventListener('click', enterInterior)
+    document.getElementById('back-btn').addEventListener('click', () => enterPlan(activeLevel))
+    document.getElementById('book-btn').addEventListener('click', () => {
+      window.location.href = 'mailto:sales@snowdon.example?subject=Snowdon%20Towers%20Home%20' + (activeHome ? activeHome.num : '')
+    })
+    document.getElementById('contact-btn').addEventListener('click', () => {
+      window.location.href = 'mailto:sales@snowdon.example?subject=Snowdon%20Towers'
+    })
+    document.getElementById('unit-sqft').addEventListener('click', () => {
+      useSqm = false
+      document.getElementById('unit-sqft').setAttribute('aria-pressed', 'true')
+      document.getElementById('unit-sqm').setAttribute('aria-pressed', 'false')
+      renderTable()
+      updateCard()
+    })
+    document.getElementById('unit-sqm').addEventListener('click', () => {
+      useSqm = true
+      document.getElementById('unit-sqft').setAttribute('aria-pressed', 'false')
+      document.getElementById('unit-sqm').setAttribute('aria-pressed', 'true')
+      renderTable()
+      updateCard()
+    })
+
+    const video = document.getElementById('hero-video')
+    video.src = 'media/dusk-hero.mp4?v=2'
+    video.addEventListener('loadeddata', () => {
+      if (mode === 'homes') {
+        showLayer('hero-video')
+        video.play().catch(() => {})
+      }
+    })
+
+    activeHome = homes.find((h) => h.num === '405')
+    buildOutlines()
+    renderTable()
+    enterHomesAerial()
+  </script>
+</body>
+</html>

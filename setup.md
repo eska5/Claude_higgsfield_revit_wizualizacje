@@ -54,7 +54,7 @@ Close that window, open a new one, and run `uv --version`. You should see a vers
 ### The extension, inside Revit
 
 1. pyRevit tab → the small pyRevit button at the bottom left.
-2. **Extensions**. Search `mcp`. Install **MCP Server for Revit Python** until it says Enabled. Default folder: `%APPDATA%\pyRevit\Extensions\revit-mcp-python.extension`.
+2. **Extensions**. Search `mcp`. Install **MCP Server for Revit Python** until it says Enabled. On this computer the folder is `%APPDATA%\pyRevit\Extensions\mcp-server-for-revit-python.extension`.
 3. **Settings → Routes**. Tick **Routes Server**. Save and reload. An orange band means it is listening, normally at `http://localhost:48884/`.
 4. Close Revit and open it again with the sample model.
 5. In Revit choose **MCP → Bridge → Connect**. That pairs this Windows user with the server. Requests that change the model stop for review inside Revit.
@@ -78,20 +78,22 @@ The file it edits is `%APPDATA%\Claude\claude_desktop_config.json`. The shape fr
 {
   "mcpServers": {
     "Revit Connector": {
-      "command": "uv",
+      "command": "C:\\Users\\USER\\.local\\bin\\uv.exe",
       "args": [
         "run",
         "--frozen",
+        "--directory",
+        "C:\\Users\\USER\\AppData\\Roaming\\pyRevit\\Extensions\\mcp-server-for-revit-python.extension",
         "mcp",
         "run",
-        "C:\\Users\\USER\\AppData\\Roaming\\pyRevit\\Extensions\\revit-mcp-python.extension\\main.py"
+        "main.py"
       ]
     }
   }
 }
 ```
 
-Replace the `main.py` path if Claude finds the file in a subfolder. Windows paths in JSON need doubled backslashes.
+Those are the paths on this computer. Claude Desktop is not installed here yet, so this entry has not been tried in Claude. Windows paths in JSON need doubled backslashes.
 
 Click **+** under the message box, then **Connectors**. Revit Connector should be on. With the model open, ask:
 
@@ -105,7 +107,7 @@ Extra connectors, switched on in that same **+** menu only for the workflow that
 
 | Connector | Where | Used by |
 | --- | --- | --- |
-| Higgsfield | Custom connector, URL `https://mcp.higgsfield.ai/mcp`, then sign in | Video walkthrough |
+| Higgsfield | Custom connector, URL `https://mcp.higgsfield.ai/mcp`, then sign in | Video walkthrough, Home Tour |
 | Adobe | **+ → Connectors → Add connector → Browse connectors**, search Adobe | InDesign deck, Photoshop looks |
 | Notion | Same browse list, sign in | Notion to InDesign |
 | InDesign MCP | Separate local server. Steps are in the InDesign folder | Booklet that is built on the open InDesign file |
@@ -119,21 +121,23 @@ Cursor uses the same server. Create or edit `%USERPROFILE%\.cursor\mcp.json`:
 ```json
 {
   "mcpServers": {
-    "Revit Connector": {
-      "command": "uv",
+    "revit": {
+      "command": "C:\\Users\\USER\\.local\\bin\\uv.exe",
       "args": [
         "run",
         "--frozen",
+        "--directory",
+        "C:\\Users\\USER\\AppData\\Roaming\\pyRevit\\Extensions\\mcp-server-for-revit-python.extension",
         "mcp",
         "run",
-        "C:\\Users\\USER\\AppData\\Roaming\\pyRevit\\Extensions\\revit-mcp-python.extension\\main.py"
+        "main.py"
       ]
     }
   }
 }
 ```
 
-Restart Cursor. In Settings → MCP, Revit Connector should be connected. Revit must be open on the model, with **MCP → Bridge → Connect** already done.
+This is the file on this computer, and it was tested: the server starts and lists 20 tools. Cursor picked it up without a restart. In Settings → MCP, `revit` should be connected. Revit must be open on the model, with **MCP → Bridge → Connect** already done.
 
 Ask in this chat, with the model open: “What is the title of the Revit model I have open?” The answer should be the file name, read from Revit.
 
@@ -145,7 +149,7 @@ Higgsfield in Cursor is the same URL if a workflow needs images or video from he
 }
 ```
 
-Sign in when Cursor prompts. The walkthrough, the deck, the booklet, and the Photoshop looks were run in Claude Desktop or Claude Code. Cursor is the place to edit the site, the scripts, and the exported files those runs leave behind.
+Sign in when Cursor prompts. The walkthrough, the deck, the booklet, the home tour, and the Photoshop looks were run in Claude Desktop or Claude Code. Cursor is the place to edit the site, the scripts, and the exported files those runs leave behind.
 
 ## 6. If the model name does not come back
 
@@ -164,6 +168,7 @@ Sign in when Cursor prompts. The walkthrough, the deck, the booklet, and the Pho
 | [revit-to-indesign](revit-to-indesign/guide.md) | [Revit to InDesign](https://archaiflow.com/research/revit-indesign-deck) |
 | [revit-to-notion-to-indesign](revit-to-notion-to-indesign/guide.md) | [Revit to Notion to InDesign](https://archaiflow.com/research/revit-notion-indesign) |
 | [revit-to-website](revit-to-website/guide.md) | [Revit to Website](https://archaiflow.com/research/revit-website) |
+| [revit-to-home-tour](revit-to-home-tour/guide.md) | [Revit to Home Tour](https://archaiflow.com/research/revit-home-tour) |
 | [revit-to-after-effects](revit-to-after-effects/guide.md) | [Revit to After Effects](https://archaiflow.com/research/revit-after-effects) |
 | [photoshop-looks-six-at-once](photoshop-looks-six-at-once/guide.md) | [Photoshop Looks, Six at Once](https://archaiflow.com/research/revit-photoshop-looks) |
 
