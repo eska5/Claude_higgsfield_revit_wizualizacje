@@ -1,0 +1,143 @@
+"""Write sales-page-v2/data.js: every number and coordinate the page shows.
+
+Sources:
+  rooms.json     room names, numbers, levels and areas read from the Revit model
+  overlays.json  floor and home shapes projected through the aerial camera
+  cams_ht2.json  street and rooftop cameras, used to place the hotspots
+  room_cams.json which side of the building each home is on (from its position)
+  hf/timelapse.mp4 + hf/aerial-*.png  where each time of day sits in the time-lapse
+"""
+import copy
+import json
+import os
+
+import cv2
+import numpy as np
+
+from proj import HERE, homes, load, project
+
+SITE = os.path.normpath(os.path.join(HERE, '..', 'sales-page-v2'))
+SQM_PER_SQFT = 0.09290304
+LEVELS = ['L5', 'L4', 'L3', 'L2']
+TYPE_LABELS = {
+    'Live/Work Unit': 'Live/work home',
+    'Live/Work Loft Unit': 'Live/work loft',
+    'Studio Unit': 'Studio',
+    'Two Story Studio Unit': 'Two-storey studio',
+}
+# Revit stores these two crops on a plane 0.1 ft in front of the eye.
+HOTSPOT_PLANE = 0.1
+STREET_SPOTS = [('104', 'Pocket park'), ('101', 'Caf\u00e9'), ('105', 'Shop'), ('106', 'Residential lobby'), ('108', 'Shop')]
+ROOFTOP_SPOTS = [('R101', 'Bandstand')]
+TIMES = ['dawn', 'noon', 'golden', 'dusk', 'night']
+TIME_LABELS = {'dawn': 'Dawn', 'noon': 'Midday', 'golden': 'Golden hour', 'dusk': 'Dusk', 'night': 'Night'}
+
+
+def area_of(room):
+    return {'sqft': int(round(room['area'])), 'sqm': int(round(room['area'] * SQM_PER_SQFT))}
+
+
+def build_homes(rooms, overlays, room_cams):
+    result = []
+    for room in homes(rooms):
+        num = room['number']
+        shape = overlays['homes'][num]
+        result.append({
+            'num': num,
+            'level': room['level'],
+            'type': TYPE_LABELS.get(room['name'], room['name']),
+            'area': area_of(room),
+            'side': room_cams[num]['side'],
+            'poly': shape['poly'],
+            'pin': shape['pin'],
+        })
+    return result
+
+
+def spots(cam, rooms, wanted, lift=5.0):
+    cam = copy.deepcopy(cam)
+    cam['cmax'][2] = -HOTSPOT_PLANE
+    by_number = {r['number']: r for r in rooms}
+    result = []
+    for number, label in wanted:
+        room = by_number[number]
+        q = project(cam, [room['loc'][0], room['loc'][1], room['level_elev'] + lift])
+        if q is None or not (0.02 < q[0] < 0.98 and 0.02 < q[1] < 0.98):
+            print('hotspot outside frame, skipped:', number, label)
+            continue
+        result.append({'label': label, 'area': area_of(room), 'x': round(q[0] * 100, 2), 'y': round(q[1] * 100, 2)})
+    return result
+
+
+def timelapse_times():
+    """Second in the time-lapse that looks most like each time-of-day still."""
+    path = os.path.join(HERE, 'hf', 'timelapse.mp4')
+    cap = cv2.VideoCapture(path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+    frames = []
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        frames.append(cv2.resize(frame, (320, 180)).astype(np.float32))
+    cap.release()
+    last = len(frames) - 1
+    found = {'dawn': 0, 'night': last}
+    lower = 1
+    for name in ('noon', 'golden', 'dusk'):
+        still = cv2.resize(cv2.imread(os.path.join(HERE, 'hf', 'aerial-%s.png' % name)), (320, 180)).astype(np.float32)
+        diffs = [float(np.mean(np.abs(still - f))) for f in frames[lower:last]]
+        found[name] = lower + int(np.argmin(diffs))
+        lower = found[name] + 1
+    return [{'id': name, 'label': TIME_LABELS[name], 't': round(found[name] / fps, 2)} for name in TIMES], round(last / fps, 2)
+
+
+def main():
+    rooms = load('rooms.json')
+    overlays = load('overlays.json')
+    cams = load('cams_ht2.json')
+    room_cams = load('room_cams.json')
+    by_number = {r['number']: r for r in rooms}
+    home_list = build_homes(rooms, overlays, room_cams)
+    levels = []
+    for level in LEVELS:
+        members = [h for h in home_list if h['level'] == level]
+        levels.append({
+            'id': level,
+            'label': 'Level ' + level[1:],
+            'homes': [h['num'] for h in members],
+            'minArea': min(h['area']['sqft'] for h in members),
+            'maxArea': max(h['area']['sqft'] for h in members),
+            'polys': overlays['floors'][level],
+        })
+    times, length = timelapse_times()
+    roof = by_number['R100']
+    data = {
+        'name': 'Snowdon Towers',
+        'homes': home_list,
+        'levels': levels,
+        'stats': {
+            'homes': len(home_list),
+            'floors': len(levels),
+            'largest': max(h['area']['sqft'] for h in home_list),
+            'smallest': min(h['area']['sqft'] for h in home_list),
+            'roof': area_of(roof),
+        },
+        'street': spots(cams['HT2 - Street'], rooms, STREET_SPOTS),
+        'rooftop': spots(cams['HT2 - Rooftop'], rooms, ROOFTOP_SPOTS, lift=1.0),
+        'times': times,
+        'timelapseLength': length,
+    }
+    os.makedirs(SITE, exist_ok=True)
+    with open(os.path.join(SITE, 'data.js'), 'w', encoding='utf-8') as f:
+        f.write('// Generated by v2-work/build_site_data.py from the Revit model. Do not edit by hand.\n')
+        f.write('window.TOUR = ' + json.dumps(data, ensure_ascii=False, separators=(',', ':')) + '\n')
+    print('homes', len(home_list), 'levels', [(l['id'], len(l['homes'])) for l in levels])
+    print('stats', data['stats'])
+    print('street', [(s['label'], s['x'], s['y']) for s in data['street']])
+    print('rooftop', [(s['label'], s['x'], s['y']) for s in data['rooftop']])
+    print('times', [(t['id'], t['t']) for t in times], 'length', length)
+
+
+if __name__ == '__main__':
+    main()
