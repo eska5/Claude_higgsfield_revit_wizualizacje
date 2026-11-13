@@ -6,7 +6,7 @@ Claude reads the open model and builds one project page: rooms, areas, wall buil
 
 Finish [setup.md](../setup.md) first. This article uses the Revit connector only. It does not call Higgsfield. Renders on the example were made earlier from the same cameras. The prompt itself uses PNGs exported from Revit.
 
-A later note, [Revit to Home Tour](https://archaiflow.com/research/revit-home-tour), is the sales page in the example video: section cut, Higgsfield stills, floor hotspots. Use that note when you want the dusk sales site. Use this one when you want the project page described here.
+The dusk sales site, with the section cut and the floor hotspots, is [Revit to Home Tour](../revit-to-home-tour/guide.md). Use this folder when you want the project page described here.
 
 ## 1. One prompt
 

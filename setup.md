@@ -105,7 +105,7 @@ Extra connectors, switched on in that same **+** menu only for the workflow that
 
 | Connector | Where | Used by |
 | --- | --- | --- |
-| Higgsfield | Custom connector, URL `https://mcp.higgsfield.ai/mcp`, then sign in | Video walkthrough |
+| Higgsfield | Custom connector, URL `https://mcp.higgsfield.ai/mcp`, then sign in | Video walkthrough, Home Tour |
 | Adobe | **+ → Connectors → Add connector → Browse connectors**, search Adobe | InDesign deck, Photoshop looks |
 | Notion | Same browse list, sign in | Notion to InDesign |
 | InDesign MCP | Separate local server. Steps are in the InDesign folder | Booklet that is built on the open InDesign file |
@@ -145,7 +145,7 @@ Higgsfield in Cursor is the same URL if a workflow needs images or video from he
 }
 ```
 
-Sign in when Cursor prompts. The walkthrough, the deck, the booklet, and the Photoshop looks were run in Claude Desktop or Claude Code. Cursor is the place to edit the site, the scripts, and the exported files those runs leave behind.
+Sign in when Cursor prompts. The walkthrough, the deck, the booklet, the home tour, and the Photoshop looks were run in Claude Desktop or Claude Code. Cursor is the place to edit the site, the scripts, and the exported files those runs leave behind.
 
 ## 6. If the model name does not come back
 
@@ -164,6 +164,7 @@ Sign in when Cursor prompts. The walkthrough, the deck, the booklet, and the Pho
 | [revit-to-indesign](revit-to-indesign/guide.md) | [Revit to InDesign](https://archaiflow.com/research/revit-indesign-deck) |
 | [revit-to-notion-to-indesign](revit-to-notion-to-indesign/guide.md) | [Revit to Notion to InDesign](https://archaiflow.com/research/revit-notion-indesign) |
 | [revit-to-website](revit-to-website/guide.md) | [Revit to Website](https://archaiflow.com/research/revit-website) |
+| [revit-to-home-tour](revit-to-home-tour/guide.md) | [Revit to Home Tour](https://archaiflow.com/research/revit-home-tour) |
 | [revit-to-after-effects](revit-to-after-effects/guide.md) | [Revit to After Effects](https://archaiflow.com/research/revit-after-effects) |
 | [photoshop-looks-six-at-once](photoshop-looks-six-at-once/guide.md) | [Photoshop Looks, Six at Once](https://archaiflow.com/research/revit-photoshop-looks) |
 
