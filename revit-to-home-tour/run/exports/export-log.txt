@@ -1,0 +1,114 @@
+aerial|4706251 bytes|8.8 s
+cut-l4|4278971 bytes|7.8 s
+START batch 2
+street|2408786 bytes|9.6 s
+rooftop|1652535 bytes|14.3 s
+loft-405|1837362 bytes|13.5 s
+cut-l5|4360272 bytes|11.5 s
+cut-l3|4284235 bytes|10.0 s
+cut-l2|4334900 bytes|9.5 s
+mask-0|1285178 bytes|3.6 s
+mask-1|1418553 bytes|3.5 s
+mask-2|1316849 bytes|3.4 s
+mask-3|1047208 bytes|3.2 s
+mask-4|1064788 bytes|2.6 s
+mask-5|917596 bytes|2.3 s
+f000|2179170 bytes|8.3 s
+f000|top full
+f001|2179107 bytes|8.9 s
+f001|top 79.400
+f002|2179160 bytes|8.1 s
+f002|top 77.741
+f003|2179020 bytes|8.3 s
+f003|top 75.234
+f004|2172084 bytes|7.8 s
+f004|top 72.093
+f005|2182922 bytes|9.1 s
+f005|top 68.527
+f006|2158789 bytes|9.6 s
+f006|top 64.750
+f007|2148335 bytes|9.4 s
+f007|top 60.973
+f008|2098878 bytes|9.7 s
+f008|top 57.407
+f009|2023171 bytes|9.4 s
+f009|top 54.266
+f010|2029919 bytes|10.8 s
+f010|top 51.759
+f011|2032350 bytes|9.7 s
+f011|top 50.100
+f012|2039803 bytes|10.2 s
+f012|top 49.500
+f013|2044255 bytes|10.5 s
+f013|top 49.238
+f014|2054252 bytes|10.2 s
+f014|top 48.512
+f015|2049141 bytes|10.2 s
+f015|top 47.417
+f016|1944162 bytes|9.8 s
+f016|top 46.043
+f017|2012530 bytes|9.8 s
+f017|top 44.485
+f018|1951392 bytes|9.1 s
+f018|top 42.834
+f019|1963128 bytes|9.8 s
+f019|top 41.182
+f020|1971382 bytes|9.7 s
+f020|top 39.624
+f021|1982497 bytes|10.1 s
+f021|top 38.250
+f022|1994162 bytes|9.7 s
+f022|top 37.155
+f023|1998026 bytes|9.1 s
+f023|top 36.429
+f024|1998137 bytes|9.7 s
+f024|top 36.167
+f025|2006436 bytes|9.5 s
+f025|top 35.905
+f026|2008704 bytes|9.5 s
+f026|top 35.179
+f027|2023394 bytes|9.7 s
+f027|top 34.084
+f028|1992327 bytes|9.4 s
+f028|top 32.710
+f029|2005374 bytes|9.3 s
+f029|top 31.151
+f030|1931410 bytes|8.6 s
+f030|top 29.500
+f031|1972638 bytes|9.3 s
+f031|top 27.849
+f032|1977273 bytes|9.0 s
+f032|top 26.290
+f033|1985479 bytes|8.8 s
+f033|top 24.916
+f034|1995172 bytes|9.2 s
+f034|top 23.821
+f035|1997973 bytes|8.9 s
+f035|top 23.095
+f036|1997193 bytes|9.0 s
+f036|top 22.833
+f037|1997459 bytes|8.5 s
+f037|top 22.621
+f038|2001436 bytes|7.0 s
+f038|top 22.037
+f039|2011092 bytes|9.0 s
+f039|top 21.153
+f040|2015439 bytes|6.9 s
+f040|top 20.046
+f041|2001686 bytes|7.8 s
+f041|top 18.789
+f042|2003122 bytes|8.8 s
+f042|top 17.458
+f043|1960992 bytes|8.1 s
+f043|top 16.127
+f044|1975615 bytes|6.7 s
+f044|top 14.870
+f045|1975953 bytes|5.2 s
+f045|top 13.763
+f046|1980419 bytes|4.8 s
+f046|top 12.879
+f047|1982052 bytes|5.5 s
+f047|top 12.295
+f048|1984946 bytes|8.0 s
+f048|top 12.083
+DONE batch 2

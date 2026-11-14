@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+
+# Raw Higgsfield renders, about 2.4 GB. They make a normal git push fail.
+revit-to-home-tour/run/v2-work/hf/
+
+# Thread dump includes Higgsfield upload URLs and AWS session tokens.
+revit-to-home-tour/podsumowanie/04-zapis-watku.md
+revit-to-home-tour/podsumowanie/zapis-watku.jsonl
+
+# Download helper embeds the Higgsfield account id.
+revit-to-home-tour/run/v2-work/dl.py
