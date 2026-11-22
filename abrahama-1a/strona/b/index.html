@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Abrahama 1A — biura do wynajęcia (wersja B)</title>
+  <meta name="description" content="Biurowiec przy ul. Abrahama 1A w Gdańsku: cztery lokale biurowe od 120 do 384 m². Wybierz piętro, wejdź do lokalu.">
+  <meta name="theme-color" content="#06080d">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="preload" as="image" href="assets/img/aerial-day.jpg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-mode="aerial">
+  <a class="skip-link" href="#panel">Przejdź do treści</a>
+
+  <header class="topbar">
+    <button class="brand" type="button" data-go="aerial" aria-label="Abrahama 1A, wróć do widoku budynku">Abrahama <em>1A</em></button>
+    <nav class="nav" aria-label="Zwiedzanie">
+      <button type="button" data-go="aerial" data-nav="aerial">Budynek</button>
+      <button type="button" data-go="homes" data-nav="homes">Lokale</button>
+      <button type="button" data-go="wejscie" data-nav="wejscie">Wejście</button>
+    </nav>
+    <div class="topbar-actions">
+      <button class="icon-btn" type="button" id="motion-toggle" aria-pressed="false" aria-label="Zatrzymaj ruch" title="Zatrzymaj ruch">
+        <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>
+        <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z"/></svg>
+      </button>
+      <button class="btn btn-primary" type="button" data-book>Umów prezentację</button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <div class="plate" id="plate">
+      <div class="media-stack" id="media" role="img" aria-label="Biurowiec Abrahama 1A z lotu ptaka, w dzień">
+        <img class="media is-on" src="assets/img/aerial-day.jpg" alt="" width="1920" height="1080">
+      </div>
+      <video class="timelapse" id="timelapse" muted playsinline preload="none" aria-hidden="true" tabindex="-1"></video>
+      <div class="vignette" aria-hidden="true"></div>
+      <svg class="shapes" id="shapes" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+      <div class="pins" id="pins"></div>
+    </div>
+
+    <div class="ui">
+      <section class="panel glass" id="panel" tabindex="-1" aria-label="Szczegóły"></section>
+
+      <aside class="side" aria-label="Piętra i pora dnia">
+        <section class="glass floors">
+          <h2 class="eyebrow">Wybierz piętro</h2>
+          <ul class="floor-list" id="floor-list"></ul>
+        </section>
+
+        <section class="glass daylight">
+          <div class="daylight-head">
+            <h2 class="eyebrow" id="daylight-title">Pora dnia</h2>
+            <button class="chip-btn" type="button" id="play-day">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z"/></svg>
+              <span>Do zmierzchu</span>
+            </button>
+          </div>
+          <input class="day-slider" id="day-slider" type="range" min="0" max="1" step="0.005" value="0" aria-labelledby="daylight-title">
+          <div class="day-stops" id="day-stops" role="group" aria-label="Wybierz porę dnia"></div>
+        </section>
+      </aside>
+    </div>
+
+    <button class="skip-btn" type="button" id="skip">Pomiń <span aria-hidden="true">›</span></button>
+    <div class="loader" id="loader" aria-hidden="true"></div>
+    <div class="tooltip" id="tooltip" aria-hidden="true"></div>
+    <p class="visually-hidden" id="status" role="status" aria-live="polite"></p>
+  </main>
+
+  <dialog class="dialog" id="book-dialog" aria-labelledby="book-title">
+    <form class="dialog-body" id="book-form" novalidate>
+      <header class="dialog-head">
+        <h2 id="book-title">Umów prezentację</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Zamknij">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <p class="dialog-note">Wersja demonstracyjna: formularz nie jest jeszcze podłączony, nic nie zostanie wysłane.</p>
+      <div class="field">
+        <label for="book-name">Imię i nazwisko</label>
+        <input id="book-name" name="name" type="text" autocomplete="name" required aria-describedby="book-name-error">
+        <p class="field-error" id="book-name-error" hidden>Podaj imię i nazwisko.</p>
+      </div>
+      <div class="field">
+        <label for="book-email">Email</label>
+        <input id="book-email" name="email" type="email" autocomplete="email" inputmode="email" required aria-describedby="book-email-error">
+        <p class="field-error" id="book-email-error" hidden>Podaj adres w formacie imie@example.com.</p>
+      </div>
+      <div class="field">
+        <label for="book-home">Lokal</label>
+        <select id="book-home" name="home"></select>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" type="submit">Wyślij zapytanie</button>
+        <button class="btn" type="button" data-close>Anuluj</button>
+      </div>
+    </form>
+    <div class="dialog-body" id="book-done" hidden>
+      <header class="dialog-head">
+        <h2 tabindex="-1" id="book-done-title">Tak to będzie działać</h2>
+      </header>
+      <p id="book-done-text"></p>
+      <div class="actions">
+        <button class="btn btn-primary" type="button" data-close>Wróć do budynku</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="dialog" id="about-dialog" aria-labelledby="about-title">
+    <div class="dialog-body">
+      <header class="dialog-head">
+        <h2 id="about-title">O wizualizacjach</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Zamknij">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <p>Bryła budynku, układ pięter, numery i granice lokali pochodzą z modelu Revit zbudowanego na podstawie rzutów i nagrania z drona. Powierzchnie lokali pochodzą z kart lokali.</p>
+      <p>Obrazy i klipy to wizualizacje wygenerowane przez AI z widoków tego modelu. Meble, wykończenie, ludzie, samochody, zieleń i otoczenie są poglądowe i mogą różnić się od stanu faktycznego.</p>
+      <div class="actions">
+        <button class="btn btn-primary" type="button" data-close>Rozumiem</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="dialog dialog-wide" id="plan-dialog" aria-labelledby="plan-title">
+    <div class="dialog-body">
+      <header class="dialog-head">
+        <h2 id="plan-title">Rzut lokalu</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Zamknij">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </header>
+      <img class="plan-img" id="plan-img" src="" alt="">
+      <p class="dialog-note">Rzut z modelu budynku, z numerami pomieszczeń.</p>
+    </div>
+  </dialog>
+
+  <noscript><p class="noscript">Ta strona wymaga włączonego JavaScriptu.</p></noscript>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

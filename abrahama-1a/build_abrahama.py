@@ -1,10 +1,11 @@
 # Builds the Abrahama 1A office building (Gdansk) with its surroundings in the
 # open "Abrahama_1A" Revit document. Run inside Revit (IronPython):
-#   STAGES = ['site', 'shell', 'interior']   # optional, default = all
+#   STAGES = ['site', 'shell', 'plans']   # optional, default = all
 #   exec(open(r'<this file>').read())
-# The footprint and the surroundings come from OpenStreetMap (site.json, made by
-# osm_to_site.py). Facades, storey heights and the interior layout are estimated
-# from drone footage and one letting plan, not surveyed.
+# The surroundings come from OpenStreetMap (site.json, made by osm_to_site.py).
+# The footprint, the garage, the ramp and every floor's walls, doors and rooms
+# come from the PDF floor plans (plans.json, made by plans_to_json.py). Facades
+# and storey heights are estimated from drone footage.
 # Units below are metres. X runs along the front facade (north-east is -X),
 # Y points from the car park to the railway, the front facade lies on Y = 0.
 from Autodesk.Revit.DB import *
@@ -16,24 +17,32 @@ app = __revit__.Application
 doc = [d for d in app.Documents if d.Title == 'Abrahama_1A'][0]
 HERE = r'C:\Users\USER\Documents\GitHub\AdventOfCode\Claude_higgsfield_revit\abrahama-1a'
 SITE = json.load(open(os.path.join(HERE, 'site.json')))
+PLANS = json.load(open(os.path.join(HERE, 'plans.json')))
 try:
     STAGES
 except NameError:
-    STAGES = ['site', 'shell', 'interior']
+    STAGES = ['site', 'shell', 'plans']
 F = 0.3048
 LOG = []
 
 FL = [0.0, 4.6, 8.3, 12.0, 15.7, 19.4]   # ground floor + 5 upper floors
 TOP = 23.1
 LEVEL_NAMES = ['Parter', 'Pietro 1', 'Pietro 2', 'Pietro 3', 'Pietro 4', 'Pietro 5', 'Dach']
+BASE = -3.2                       # garage floor
+CX = -0.15                        # axis of the front facade, from the pier rhythm on the plans
 EH = 7.0     # height of the railway embankment
-# Garage ramp: centre line (x, y, z). It leaves the car park, runs down beside the
-# south-west end and turns left under the slanted end facade of the building.
-RAMP_PATH = [(43.6, -13.0, 0.0), (43.9, -6.0, -0.4), (44.4, 3.5, -1.8), (42.3, 8.4, -2.5),
-             (38.9, 10.3, -2.9), (34.4, 12.35, -3.0), (32.4, 13.3, -3.0)]
-FACE_DIR = (0.719, 0.695)      # direction of the slanted south-west end facade
-RW = 2.7       # half width of the carriageway
-RAMP_D = 3.0
+# Garage ramp, read off the ground floor plan: centre lines of the two retaining
+# walls. Cars enter at the south end, run north, then turn west and go under the
+# slanted south-west end facade into the garage.
+RAMP_IN = [(41.41, -6.55), (41.89, 2.98), (39.74, 6.25), (34.25, 8.30)]
+RAMP_OUT = [(47.60, -6.87), (48.43, 9.62), (36.50, 14.05)]
+RAMP_CL = [(44.5, -6.7), (45.0, 4.0), (43.0, 8.6), (35.3, 11.2)]
+RAMP_POLY = RAMP_IN + list(reversed(RAMP_OUT))
+# transformer station under the ground between the building end and the ramp
+TRAFO = [(36.87, -2.86), (41.30, -2.86), (41.55, 2.90), (39.50, 6.00), (36.87, 7.00)]
+# garage outline from the basement plan
+GARAGE = [(-29.1, -4.45), (28.6, -4.45), (28.6, 5.41), (33.13, 5.41), (36.39, 14.25),
+          (33.2, 15.45), (23.9, 18.85), (23.9, 23.35), (-29.1, 23.35)]
 
 
 def P(x, y, z=0.0):
@@ -51,8 +60,8 @@ def rnd():
 # ---------------------------------------------------------------- materials
 MATS = {}
 MAT_DEF = {
-    'A1A Piaskowiec': (228, 212, 176, 0),
-    'A1A Piaskowiec ciemny': (206, 188, 152, 0),
+    'A1A Piaskowiec': (238, 226, 190, 0),
+    'A1A Piaskowiec ciemny': (222, 208, 172, 0),
     'A1A Szklo': (38, 62, 84, 0),
     'A1A Szklo kurtynowe': (30, 50, 70, 0),
     'A1A Slusarka': (96, 102, 110, 0),
@@ -61,9 +70,9 @@ MAT_DEF = {
     'A1A Teren': (186, 182, 170, 0),
     'A1A Trawa': (104, 146, 70, 0),
     'A1A Trawa boisko': (88, 170, 72, 0),
-    'A1A Bruk': (192, 164, 146, 0),
+    'A1A Bruk': (178, 124, 112, 0),
     'A1A Bruk jasny': (216, 204, 186, 0),
-    'A1A Bruk szary': (168, 152, 140, 0),
+    'A1A Bruk szary': (122, 122, 126, 0),
     'A1A Asfalt': (84, 86, 90, 0),
     'A1A Chodnik': (176, 172, 166, 0),
     'A1A Parking': (150, 148, 144, 0),
@@ -288,9 +297,26 @@ def inset(pts, d):
     return out
 
 
-# The map draws a 6 m step at the south-west end; the drone footage shows one
-# slanted end facade there instead, so that vertex is dropped.
-OFFICE = ccw([p for p in SITE['office'] if not (abs(p[0] - 32.98) < 0.6 and abs(p[1] - 5.45) < 0.6)])
+def squared(pts):
+    """Snap edges within 2 degrees of the axes onto the axes."""
+    pts = [list(p) for p in pts]
+    for it in range(3):
+        n = len(pts)
+        for i in range(n):
+            a, b = pts[i], pts[(i + 1) % n]
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            tol = 0.035 if math.hypot(dx, dy) > 3.0 else 0.13   # short edges drift more in the trace
+            if abs(dx) > 1e-6 and abs(dy / dx) < tol:
+                y = (a[1] + b[1]) / 2.0
+                a[1] = b[1] = y
+            elif abs(dy) > 1e-6 and abs(dx / dy) < tol:
+                x = (a[0] + b[0]) / 2.0
+                a[0] = b[0] = x
+    return [(round(p[0], 3), round(p[1], 3)) for p in pts]
+
+
+# footprint traced from the first floor plan, front facade on Y = 0
+OFFICE = ccw(squared(PLANS['shell']))
 
 
 def dist_seg(p, a, b):
@@ -301,8 +327,82 @@ def dist_seg(p, a, b):
 
 
 def in_ramp(p, m=1.0):
-    d = min(dist_seg(p, RAMP_PATH[i], RAMP_PATH[i + 1]) for i in range(len(RAMP_PATH) - 1))
-    return d < RW + 0.4 + m
+    if inside(p, RAMP_POLY):
+        return True
+    n = len(RAMP_POLY)
+    return min(dist_seg(p, RAMP_POLY[i], RAMP_POLY[(i + 1) % n]) for i in range(n)) < m + 0.2
+
+
+def path_s(p, line):
+    """Distance along a polyline to the point closest to p."""
+    best, acc, at = None, 0.0, 0.0
+    for i in range(len(line) - 1):
+        a, b = line[i], line[i + 1]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        L = math.hypot(dx, dy)
+        t = max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (L * L)))
+        d = math.hypot(p[0] - a[0] - dx * t, p[1] - a[1] - dy * t)
+        if best is None or d < best:
+            best, at = d, acc + L * t
+        acc += L
+    return at, acc
+
+
+RAMP_D2 = (-0.937, 0.348)          # direction of the second leg, towards the building
+RAMP_Z1 = -1.6                     # level of the landing at the bend
+RAMP_ZP = -2.8                     # level at the portal in the end facade
+# landing between the two legs: its edges are square to each leg so the three
+# parts of the ramp are flat planes that meet without steps
+RAMP_Q1 = (48.10, 2.98)
+RAMP_Q2 = (41.90, 12.05)
+
+
+def ramp_z(p):
+    s2 = (p[0] - RAMP_IN[2][0]) * RAMP_D2[0] + (p[1] - RAMP_IN[2][1]) * RAMP_D2[1]
+    if s2 > 0.05:
+        return RAMP_Z1 + (RAMP_ZP - RAMP_Z1) * s2 / 5.86
+    if p[1] < RAMP_IN[1][1] - 0.01:
+        # strictly linear in Y so the first leg stays one flat plane
+        return RAMP_Z1 * (p[1] + 6.71) / (RAMP_IN[1][1] + 6.71)
+    return RAMP_Z1
+
+def offset_line(pts, d):
+    """Polyline offset to the left by d, with mitred corners."""
+    n = len(pts)
+    segs = []
+    for i in range(n - 1):
+        a, b = pts[i], pts[i + 1]
+        L = math.hypot(b[0] - a[0], b[1] - a[1])
+        nx, ny = -(b[1] - a[1]) / L, (b[0] - a[0]) / L
+        segs.append(((a[0] + nx * d, a[1] + ny * d), (b[0] + nx * d, b[1] + ny * d)))
+    out = [segs[0][0]]
+    for i in range(1, n - 1):
+        (a0, a1), (b0, b1) = segs[i - 1], segs[i]
+        dxa, dya = a1[0] - a0[0], a1[1] - a0[1]
+        dxb, dyb = b1[0] - b0[0], b1[1] - b0[1]
+        den = dxa * dyb - dya * dxb
+        if abs(den) < 1e-9:
+            out.append(b0)
+        else:
+            t = ((b0[0] - a0[0]) * dyb - (b0[1] - a0[1]) * dxb) / den
+            out.append((a0[0] + dxa * t, a0[1] + dya * t))
+    out.append(segs[-1][1])
+    return out
+
+
+def resample(pts, n):
+    L = [0.0]
+    for i in range(len(pts) - 1):
+        L.append(L[-1] + math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]))
+    out = []
+    for k in range(n + 1):
+        s = L[-1] * k / float(n)
+        i = 0
+        while i < len(pts) - 2 and L[i + 1] < s:
+            i += 1
+        t = (s - L[i]) / max(1e-9, L[i + 1] - L[i])
+        out.append((pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t))
+    return out
 
 
 def fence_gate():
@@ -342,12 +442,19 @@ def on_road(p):
     """True on a carriageway, a pavement, the car park or the entrance path."""
     if OWN_PARK and inside(p, OWN_PARK):
         return True
+    if in_ramp(p, 0.5) or (41.0 < p[0] < 48.0 and -16.0 < p[1] < -6.0):
+        return True
     if abs(p[0]) < 2.2 and GATE[1] - 1 < p[1] < 0:
         return True
     for (a, b, lim) in ROADS_NEAR:
         if abs(p[0] - a[0]) < 40 and abs(p[1] - a[1]) < 40 and dist_seg(p, a, b) < lim:
             return True
     return False
+
+
+def on_plot(p):
+    """Inside the fenced plot in front of the building."""
+    return -56.0 < p[0] < 48.6 and fence_y(p[0]) - 0.3 < p[1] < 6.0
 
 
 def gate_clear(p):
@@ -413,13 +520,15 @@ def street_y(x):
 
 def build_ground():
     terrain = box(-340, -340, -6.0, 340, 340, 0.0, 'A1A Teren')
-    for i in range(len(RAMP_PATH) - 1):
-        cut = seg(RAMP_PATH[i], RAMP_PATH[i + 1], 2 * RW + 0.6, -RAMP_D - 0.5, 0.6, 'A1A Teren', RW * 0.6)
+    for (name, pts, z0) in (('ramp', RAMP_POLY, BASE - 0.4), ('garage', GARAGE, BASE - 0.35)):
+        cut = poly(pts, z0, 0.6, 'A1A Teren', 'cut')
         try:
             terrain = BooleanOperationsUtils.ExecuteBooleanOperation(terrain, cut, BooleanOperationsType.Difference)
         except Exception as ex:
-            LOG.append('terrain cut %d failed: %s' % (i, ex))
+            LOG.append('terrain cut %s failed: %s' % (name, ex))
     add('site', 'Teren', terrain)
+    # roof slab of the garage where it reaches out under the forecourt
+    add('site', 'Strop garazu', poly(GARAGE, -0.35, -0.01, 'A1A Beton', 'garage roof'))
     for g in SITE['grass']:
         add('site', 'Trawniki', poly(g['p'], 0.0, 0.02 + zstep(), 'A1A Trawa', 'grass'))
     for g in SITE['woods']:
@@ -495,13 +604,29 @@ def build_roads():
             mid = ((pts[i][0] + pts[i + 1][0]) / 2.0, (pts[i][1] + pts[i + 1][1]) / 2.0)
             if in_ramp(mid, 1.5) or inside(mid, OFFICE):
                 continue
-            if not walk and OWN_PARK and inside(mid, OWN_PARK):
-                add('site', 'Parking - alejki', seg(pts[i], pts[i + 1], r['w'], 0.0, 0.055, 'A1A Bruk szary', r['w'] * 0.35))
-                continue
+            if on_plot(mid) or (47.0 < mid[0] < 95.0 and -62.0 < mid[1] < 14.0):
+                continue              # the plot's own drives are drawn as one surface below
             add('site', 'Chodniki' if walk else 'Drogi', seg(pts[i], pts[i + 1], r['w'], 0.0, z1, mat, r['w'] * 0.35))
     for r in SITE['trams']:
         for i in range(len(r['p']) - 1):
             add('site', 'Tramwaj', seg(r['p'][i], r['p'][i + 1], 1.6, 0.06, 0.1, 'A1A Stal'))
+    # Drives on the plot: one material, one level, laid out as continuous strips
+    # from the left gate along the main aisle to the ramp and down to the right gate.
+    M = 'A1A Bruk szary'  # drive lanes in grey pavers, bays in red: tells lanes from bays at a glance
+
+    def strip(pts, w):
+        for i in range(len(pts) - 1):
+            add('site', 'Parking - jezdnie', seg(pts[i], pts[i + 1], w, 0.0, 0.056, M, w * 0.5))
+
+    strip([(-43.9, -21.8), (-42.7, -19.1), (-40.9, -17.3), (-38.3, -15.9), (-35.0, -15.5)], 5.0)   # left gate throat
+    # Two separate car parks, private on the left and public on the right: the aisle
+    # stops at the entrance path on both sides, nothing drives across it.
+    add('site', 'Parking - jezdnie', box(-37.0, -17.75, 0.0, -2.6, -13.25, 0.056, M))
+    add('site', 'Parking - jezdnie', box(2.6, -17.75, 0.0, 47.6, -13.25, 0.056, M))
+    add('site', 'Parking - jezdnie', box(-13.4, -28.6, 0.0, -8.8, -17.7, 0.056, M))                # lane inside the left block
+    strip([(-32.2, -15.5), (-31.9, 3.5)], 4.5)                                                      # to the yard at the end
+    add('site', 'Parking - jezdnie', box(5.5, -35.3, 0.0, 45.9, -29.3, 0.056, M))                   # second aisle
+    strip([(44.4, -15.5), (43.4, -33.1), (42.4, -48.6), (42.05, -52.15)], 5.6)                      # down to the right gate
 
 
 def build_railway():
@@ -612,32 +737,43 @@ def build_barriers():
 
 
 def build_gate():
-    """Entrance gate in the street fence on the axis of the main entrance."""
+    """Pedestrian gate on the axis of the main entrance, after the photo from the
+    offices: two broad, plain rendered pillars with flat caps and a low double
+    gate of dark steel bars between them, closed."""
     gx, gy, ux, uy = GATE
     nx, ny = -uy, ux
     if ny < 0:
         nx, ny = -nx, -ny                  # n points towards the building
     for s in (-1, 1):
-        px, py = gx + ux * s * GATE_HALF, gy + uy * s * GATE_HALF
-        add('fence', 'Brama wejsciowa', box(px - 0.3, py - 0.3, 0, px + 0.3, py + 0.3, 2.2, 'A1A Piaskowiec'))
-        add('fence', 'Brama wejsciowa', box(px - 0.38, py - 0.38, 2.2, px + 0.38, py + 0.38, 2.35, 'A1A Piaskowiec ciemny'))
-        add('mech', 'Latarnie', box(px - 0.16, py - 0.16, 2.35, px + 0.16, py + 0.16, 2.75, 'A1A Tynk bialy'))
-        # gate leaf standing open, swung towards the building
-        h0 = (px - ux * s * 0.3, py - uy * s * 0.3)
-        h1 = (h0[0] + nx * 1.95 - ux * s * 0.25, h0[1] + ny * 1.95 - uy * s * 0.25)
-        add('fence', 'Brama wejsciowa', seg(h0, h1, 0.06, 0.2, 0.28, 'A1A Stal'))
-        add('fence', 'Brama wejsciowa', seg(h0, h1, 0.06, 1.6, 1.68, 'A1A Stal'))
+        c = (gx + ux * s * 1.85, gy + uy * s * 1.85)
+        a = (c[0] - ux * 0.65, c[1] - uy * 0.65)
+        b = (c[0] + ux * 0.65, c[1] + uy * 0.65)
+        a2 = (c[0] - ux * 0.72, c[1] - uy * 0.72)
+        b2 = (c[0] + ux * 0.72, c[1] + uy * 0.72)
+        add('fence', 'Furtka - slupy', seg(a2, b2, 0.64, 0.0, 0.25, 'A1A Piaskowiec ciemny'))
+        add('fence', 'Furtka - slupy', seg(a, b, 0.5, 0.25, 2.0, 'A1A Piaskowiec'))
+        add('fence', 'Furtka - slupy', seg(a2, b2, 0.66, 2.0, 2.12, 'A1A Piaskowiec ciemny'))
+        # gate leaf, closed: from the pillar to the middle, bars rising towards the middle
+        h0 = (c[0] - ux * s * 0.65, c[1] - uy * s * 0.65)
+        h1 = (gx + ux * s * 0.03, gy + uy * s * 0.03)
+        add('fence', 'Furtka', seg(h0, h1, 0.05, 0.15, 0.22, 'A1A Stal'))
+        add('fence', 'Furtka', seg(h0, h1, 0.05, 1.4, 1.47, 'A1A Stal'))
         for j in range(0, 9):
             t = j / 8.0
             x, y = h0[0] + (h1[0] - h0[0]) * t, h0[1] + (h1[1] - h0[1]) * t
-            add('fence', 'Brama wejsciowa', box(x - 0.025, y - 0.025, 0.2, x + 0.025, y + 0.025, 1.68 + 0.25 * math.sin(t * math.pi), 'A1A Stal'))
-        # short lengths of fence that tie the gate posts back into the street fence
-        e0 = (px + ux * s * 0.3, py + uy * s * 0.3)
-        e1 = (px + ux * s * 1.2, py + uy * s * 1.2)
-        add('fence', 'Brama wejsciowa', seg(e0, e1, 0.06, 0.2, 0.28, 'A1A Stal'))
-        add('fence', 'Brama wejsciowa', seg(e0, e1, 0.06, 1.5, 1.58, 'A1A Stal'))
+            add('fence', 'Furtka', box(x - 0.022, y - 0.022, 0.15, x + 0.022, y + 0.022, 1.55 + 0.3 * math.sin(t * math.pi / 2.0), 'A1A Stal'))
+        # short lengths of fence that tie the pillars back into the street fence
+        e0 = (c[0] + ux * s * 0.65, c[1] + uy * s * 0.65)
+        e1 = (c[0] + ux * s * 1.5, c[1] + uy * s * 1.5)
+        add('fence', 'Furtka', seg(e0, e1, 0.06, 0.2, 0.28, 'A1A Stal'))
+        add('fence', 'Furtka', seg(e0, e1, 0.06, 1.5, 1.58, 'A1A Stal'))
+        m = 4
+        for j in range(1, m + 1):
+            x, y = e0[0] + (e1[0] - e0[0]) * j / float(m), e0[1] + (e1[1] - e0[1]) * j / float(m)
+            add('fence', 'Furtka', box(x - 0.02, y - 0.02, 0.2, x + 0.02, y + 0.02, 1.58, 'A1A Stal'))
+    lantern(gx - 2.15, gy + 2.0)           # the lamp standing just inside, next to the pillar
     # paved threshold between the street pavement and the plot
-    add('site', 'Plac wejsciowy', seg((gx - nx * 3.0, gy - ny * 3.0), (gx + nx * 1.0, gy + ny * 1.0), 2 * GATE_HALF - 0.6, 0.05, 0.09, 'A1A Bruk jasny'))
+    add('site', 'Plac wejsciowy', seg((gx - nx * 3.0, gy - ny * 3.0), (gx + nx * 1.0, gy + ny * 1.0), 2.4, 0.05, 0.09, 'A1A Bruk jasny'))
 
 
 def build_barrier_gates():
@@ -691,102 +827,149 @@ def build_context():
         add('ctxroof', 'Otoczenie - dachy', poly(pts, h, h + cap, roof, 'building roof'))
 
 
+def ramp_plane(pts, zf=None, name='Wjazd do garazu'):
+    """One flat part of the ramp: plan polygon lifted onto the ramp surface."""
+    zf = zf or ramp_z
+    pts3 = [P(p[0], p[1], zf(p)) for p in pts]
+    for attempt in (0, 1):
+        try:
+            add('site', name, GeometryCreationUtilities.CreateExtrusionGeometry(
+                List[CurveLoop]([loop3(pts3)]), XYZ(0, 0, -1), 0.3 / F, opts('A1A Asfalt')))
+            return
+        except Exception:
+            pts3.reverse()
+    fail('ramp plane')
+    LOG.append('ramp plane failed: %s' % [tuple(round(v, 2) for v in q) + (round(ramp_z(q), 3),) for q in pts])
+
+
 def build_ramp():
-    n = len(RAMP_PATH)
+    """Garage ramp after the ground floor plan: a straight leg down from the car
+    park, a level landing at the bend, and a second leg under the end facade."""
+    ramp_plane([RAMP_IN[0], RAMP_OUT[0], RAMP_Q1, RAMP_IN[1]])
+    ramp_plane([RAMP_IN[1], RAMP_Q1, RAMP_OUT[1], RAMP_Q2, RAMP_IN[2]], lambda q: RAMP_Z1)
+
+    def leg2(q):
+        # one exact plane for the second leg and its run under the building
+        s2 = (q[0] - RAMP_IN[2][0]) * RAMP_D2[0] + (q[1] - RAMP_IN[2][1]) * RAMP_D2[1]
+        return RAMP_Z1 + (RAMP_ZP - RAMP_Z1) * s2 / 5.86
+
+    ramp_plane([RAMP_IN[2], RAMP_Q2, RAMP_OUT[2], RAMP_IN[3]], leg2)
+    inner = [(RAMP_IN[3][0] + RAMP_D2[0] * 6.0, RAMP_IN[3][1] + RAMP_D2[1] * 6.0),
+             (RAMP_OUT[2][0] + RAMP_D2[0] * 6.0, RAMP_OUT[2][1] + RAMP_D2[1] * 6.0)]
+    ramp_plane([RAMP_IN[3], RAMP_OUT[2], inner[1], inner[0]], leg2)     # continues under the building
+    # retaining walls with mitred corners, a low parapet and a railing
     C = 'A1A Beton'
-    for i in range(n - 1):
-        a, b = RAMP_PATH[i], RAMP_PATH[i + 1]
-        dx, dy, dz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
-        L2 = math.hypot(dx, dy)
-        L3 = math.sqrt(dx * dx + dy * dy + dz * dz)
-        ux, uy = dx / L2, dy / L2
-        nx, ny = -uy, ux
-        e = 0.9                                         # overlap so the bends close
-        ax, ay, az = a[0] - ux * e, a[1] - uy * e, a[2] - dz / L2 * e
-        if i == 0:
-            ax, ay, az = a
-        prof = [(-RW, 0.0), (RW, 0.0), (RW, -0.3), (-RW, -0.3)]
-        pts = [P(ax + nx * l, ay + ny * l, az + z) for (l, z) in prof]
-        length = math.sqrt((b[0] + ux * e - ax) ** 2 + (b[1] + uy * e - ay) ** 2 + (b[2] + dz / L2 * e - az) ** 2)
-        for attempt in (0, 1):
-            try:
-                add('site', 'Wjazd do garazu', GeometryCreationUtilities.CreateExtrusionGeometry(
-                    List[CurveLoop]([loop3(pts)]), XYZ(dx / L3, dy / L3, dz / L3), length / F, opts('A1A Asfalt')))
-                break
-            except Exception:
-                pts.reverse()
-        if i >= n - 2:
-            continue                                    # last stretch is under the building
-        # retaining walls with a 1 m parapet on both sides
-        for s in (-1, 1):
-            o = s * (RW + 0.15)
-            wa = (a[0] + nx * o, a[1] + ny * o)
-            wb = (b[0] + nx * o, b[1] + ny * o)
-            if i == n - 3 and inside(((wa[0] + wb[0]) / 2.0, (wa[1] + wb[1]) / 2.0), OFFICE):
-                continue
-            zlow = min(a[2], b[2]) - 0.5
-            add('site', 'Wjazd do garazu', seg(wa, wb, 0.3, zlow, 1.0, C, 0.3))
-            add('fence', 'Wjazd - balustrady', seg(wa, wb, 0.08, 1.0, 1.08, 'A1A Stal', 0.3))
-    # portal in the slanted end facade: lintel and the garage door set back under the building
-    b = RAMP_PATH[n - 2]
-    nx, ny = FACE_DIR                      # along the facade
-    ux, uy = -FACE_DIR[1], FACE_DIR[0]     # into the building
-    fx, fy = b[0], b[1]
-    add('site', 'Wjazd do garazu', seg((fx - nx * (RW + 0.6), fy - ny * (RW + 0.6)), (fx + nx * (RW + 0.6), fy + ny * (RW + 0.6)), 0.5, -0.6, 0.0, C))
-    for s in (-1, 1):
-        o = s * (RW + 0.3)
-        add('site', 'Wjazd do garazu', seg((fx + nx * o - ux * 0.25, fy + ny * o - uy * 0.25), (fx + nx * o + ux * 0.25, fy + ny * o + uy * 0.25), 0.6, -RAMP_D - 0.3, 0.0, C))
-    dxp, dyp = fx + ux * 0.9, fy + uy * 0.9
-    add('site', 'Wjazd do garazu', seg((dxp - nx * RW, dyp - ny * RW), (dxp + nx * RW, dyp + ny * RW), 0.1, -RAMP_D, -0.6, 'A1A Stal'))
-    # approach apron from the car park
-    a0 = RAMP_PATH[0]
-    add('site', 'Wjazd do garazu', box(a0[0] - RW - 0.3, a0[1] - 7.0, 0.0, a0[0] + RW + 0.3, a0[1] + 0.05, 0.06, 'A1A Asfalt'))
-    # raised triangular planter with a curved wall between the forecourt and the ramp
-    planter = [(28.2, -3.4), (35.0, -5.8), (40.2, -5.5), (40.8, -1.0), (41.2, 3.5), (39.3, 6.6), (36.0, 7.6), (31.5, 5.6), (28.2, 3.6)]
-    add('site', 'Donica przy wjezdzie', poly(planter, 0.0, 0.9, 'A1A Beton', 'planter'))
-    add('site', 'Donica przy wjezdzie', poly(inset(ccw(planter), 0.3), 0.9, 1.0, 'A1A Trawa', 'planter'))
+    for (line, side) in ((RAMP_IN, -1), (RAMP_OUT, 1)):
+        o1 = offset_line(line, 0.0)
+        o2 = offset_line(line, side * 0.3)
+        mid1 = offset_line(line, side * 0.15)
+        for i in range(len(line) - 1):
+            quad = [o1[i], o1[i + 1], o2[i + 1], o2[i]]
+            zlow = min(ramp_z(line[i]), ramp_z(line[i + 1])) - 0.6
+            add('site', 'Wjazd - mury oporowe', poly(quad, zlow, 0.45, C, 'ramp wall'))
+            add('site', 'Wjazd - mury oporowe', poly(quad, 0.45, 0.5, 'A1A Piaskowiec ciemny', 'ramp cap'))
+            add('fence', 'Wjazd - balustrady', seg(mid1[i], mid1[i + 1], 0.05, 1.05, 1.1, 'A1A Stal'))
+            Ls = math.hypot(line[i + 1][0] - line[i][0], line[i + 1][1] - line[i][1])
+            nposts = max(1, int(Ls / 1.5))
+            for k in range(nposts + 1):
+                t = k / float(nposts)
+                x = mid1[i][0] + (mid1[i + 1][0] - mid1[i][0]) * t
+                y = mid1[i][1] + (mid1[i + 1][1] - mid1[i][1]) * t
+                add('fence', 'Wjazd - balustrady', box(x - 0.025, y - 0.025, 0.5, x + 0.025, y + 0.025, 1.1, 'A1A Stal'))
+    # portal in the slanted end facade: lintel under the ground floor, door set back
+    a, b = RAMP_IN[3], RAMP_OUT[2]
+    add('site', 'Wjazd do garazu', seg(a, b, 0.5, -0.45, 0.0, C))
+    d0 = (a[0] + RAMP_D2[0] * 1.2, a[1] + RAMP_D2[1] * 1.2)
+    d1 = (b[0] + RAMP_D2[0] * 1.2, b[1] + RAMP_D2[1] * 1.2)
+    add('site', 'Wjazd do garazu', seg(d0, d1, 0.08, RAMP_ZP - 0.4, -0.45, 'A1A Blacha'))
+    # approach from the car park aisle to the top of the ramp
+    add('site', 'Parking - jezdnie', poly([(41.2, -13.3), (47.6, -13.3), (47.6, -6.87), (41.41, -6.55)], 0.0, 0.056, 'A1A Bruk szary', 'apron'))
+    # raised planter over the transformer station, between the building end and the ramp
+    planter = [(27.4, -0.15), (27.4, 5.25), (32.95, 5.25), (34.05, 8.05), (39.5, 6.05), (41.15, 3.0),
+               (40.9, -4.6), (38.6, -6.2), (34.2, -6.3), (30.6, -5.0), (28.3, -2.6)]
+    add('site', 'Donica nad stacja trafo', poly(planter, 0.0, 0.9, 'A1A Piaskowiec ciemny', 'planter'))
+    add('site', 'Donica nad stacja trafo', poly(inset(ccw(planter), 0.3), 0.9, 1.0, 'A1A Trawa', 'planter'))
+    add('site', 'Stacja transformatorowa', poly(TRAFO, BASE, -0.4, 'A1A Beton', 'trafo'))
+
+
+def lantern(x, y):
+    """Classic lantern lamp as seen along the entrance path."""
+    add('mech', 'Latarnie', box(x - 0.07, y - 0.07, 0, x + 0.07, y + 0.07, 3.3, 'A1A Stal'))
+    add('mech', 'Latarnie', box(x - 0.16, y - 0.16, 0, x + 0.16, y + 0.16, 0.5, 'A1A Stal'))
+    add('mech', 'Latarnie', box(x - 0.2, y - 0.2, 3.3, x + 0.2, y + 0.2, 3.85, 'A1A Szklo'))
+    add('mech', 'Latarnie', box(x - 0.26, y - 0.26, 3.85, x + 0.26, y + 0.26, 3.95, 'A1A Stal'))
+
+
+def bollard(x, y):
+    add('mech', 'Slupki', box(x - 0.15, y - 0.15, 0.05, x + 0.15, y + 0.15, 0.8, 'A1A Piaskowiec'))
+
+
+def bay_lines(x0, y0, x1, y1, nx, ny):
+    """White bay markings: a grid of nx by ny bays."""
+    W = 'A1A Tynk bialy'
+    for i in range(nx + 1):
+        x = x0 + (x1 - x0) * i / float(nx)
+        add('site', 'Parking - linie', box(x - 0.05, y0, 0.06, x + 0.05, y1, 0.072, W))
+    for j in range(ny + 1):
+        y = y0 + (y1 - y0) * j / float(ny)
+        add('site', 'Parking - linie', box(x0, y - 0.05, 0.06, x1, y + 0.05, 0.072, W))
 
 
 def build_forecourt():
-    # paved forecourt, lawns and the entrance path in front of the building
-    add('site', 'Plac wejsciowy', box(-34, -7.5, 0.06, 37.5, -0.02, 0.075, 'A1A Bruk jasny'))
-    add('site', 'Plac wejsciowy', box(-1.5, GATE[1] + 0.8, 0.06, 1.5, -7.5, 0.085, 'A1A Bruk jasny'))
-    add('site', 'Plac wejsciowy', box(-34, 0, 0.06, -29.3, 24, 0.075, 'A1A Bruk'))   # yard at the north-east end
+    """Forecourt and car park after the photos taken from the offices.
+    Whatever is not paved on the plot is lawn.
+    Seen from the entrance looking at the street: the right-hand side (north-east,
+    -X) has a block of bays stacked along the facade; the left-hand side
+    (south-west, +X) has rows on two aisles with a thin grass strip between them."""
+    add('site', 'Trawniki', poly([(-51.6, -4.2), (-54.9, -18.1), (-43.9, -21.8), (-3.2, -36.2), (3.3, -38.5), (39.0, -51.0),
+                                  (45.1, -53.3), (47.3, -10.0), (41.0, -7.5), (-34.0, -7.5), (-40.6, -4.4)], 0.0, 0.026, 'A1A Trawa', 'plot lawn'))
+    add('site', 'Plac wejsciowy', box(-34, -7.5, 0.06, 28.0, -0.02, 0.075, 'A1A Bruk jasny'))
+    add('site', 'Plac wejsciowy', box(-1.6, GATE[1] + 0.8, 0.06, 1.6, -7.5, 0.085, 'A1A Bruk jasny'))
+    add('site', 'Plac wejsciowy', box(-34, 0, 0.06, -29.3, 24, 0.075, 'A1A Bruk szary'))   # yard at the north-east end: a drive, not bays
     for (xa, xb) in ((-26.0, -3.0), (3.0, 26.0)):
         add('site', 'Trawniki', box(xa, -7.0, 0.075, xb, -4.6, 0.2, 'A1A Trawa boisko'))
-    # lawn between the building and the embankment fence
     add('site', 'Trawniki', poly([(-29.3, 24.0), (4.5, 26.5), (36.0, 15.0), (44.0, 17.0), (0.0, 33.0), (-31.0, 45.0)], 0.0, 0.045, 'A1A Trawa', 'lawn'))
-    for y in (-9.0, -19.5, -25.5, -31.5):
-        if y < GATE[1] + 3.5:
-            continue
+    # The entrance path is a pavement between the two car parks: a kerb and a narrow
+    # lawn verge on both sides for its whole length, bollards where the aisles end.
+    for s_ in (-1, 1):
+        xa, xb = sorted((s_ * 1.6, s_ * 1.78))
+        add('site', 'Chodnik - kraweznik', box(xa, GATE[1] + 0.8, 0.06, xb, -7.5, 0.2, 'A1A Beton'))
+        xa, xb = sorted((s_ * 1.78, s_ * 2.6))
+        add('site', 'Trawniki', box(xa, GATE[1] + 0.8, 0.05, xb, -7.5, 0.16, 'A1A Trawa boisko'))
+    # entrance path: lanterns, stone bollards on the half next to the building
+    for y in (-11.5, -21.5):
         for s in (-1, 1):
-            add('mech', 'Latarnie', box(s * 2.0 - 0.07, y - 0.07, 0, s * 2.0 + 0.07, y + 0.07, 4.2, 'A1A Stal'))
-            add('mech', 'Latarnie', box(s * 2.0 - 0.22, y - 0.22, 4.2, s * 2.0 + 0.22, y + 0.22, 4.7, 'A1A Tynk bialy'))
-    # Parking bays as drawn on the map: a main aisle at Y = -15.5 with bays on both
-    # sides, a second aisle at Y = -33.1 in the south-west block, and a short aisle
-    # at X = -11 with bays facing it (cars there stand along the facade).
-    rows = (
-        (-11.0, -33.5, 35.5),      # north of the main aisle
-        (-20.2, -34.0, -19.5),     # south of the main aisle, towards the left gate
-        (-20.2, 5.8, 35.5),        # south of the main aisle, south-west block
-        (-28.6, 8.0, 35.5),        # north of the second aisle
-        (-37.6, 16.0, 35.5),       # south of the second aisle
-    )
-    for (y, x0, x1) in rows:
+            lantern(s * 2.1, y)
+    # bollards stand in a row along BOTH edges of the path where the aisles end:
+    # they close the aisles off, nothing stands on the path itself
+    y = -17.3
+    while y < -13.6:
+        for s in (-1, 1):
+            bollard(s * 2.3, y)
+        y += 0.9
+    # row of bays in front of the building on both sides of the path
+    x = -27.8                             # the first two bays by the gate stay empty
+    while x < 35.6:
+        if abs(x) > 3.2 and inside((x, -10.3), OWN_PARK) and not in_ramp((x, -10.3), 0.5) and rnd() < 0.35:
+            car(x, -10.3, 90)
+        x += 2.6
+    # --- north-east side (-X), after the approved dusk picture: beyond the aisle a
+    # block of bays where the cars stand side-on to the facade: two columns with a
+    # drive lane between them (the lane at X = -11 stays empty)
+    for xc in (-6.1, -16.1):
+        for k in range(4):
+            if rnd() < 0.4:
+                car(xc, -19.5 - k * 2.6, 0)
+    # --- south-west side (+X): rows on two aisles, a thin grass strip between them
+    for (yrow, x0) in ((-20.4, 5.6), (-26.6, 5.6), (-37.6, 16.0)):
         x = x0
-        while x <= x1 + 0.01:
-            if abs(x) > 2.9 and inside((x, y), OWN_PARK) and not in_ramp((x, y), 0.5):
-                if rnd() < 0.75:
-                    car(x, y, 90)
-            x += 2.75
-    for xc in (-15.8, -6.6):
-        y = -20.2
-        while y > -27.6:
-            if rnd() < 0.8:
-                car(xc, y, 0)
-            y -= 2.6
-    # hedge between the two back-to-back rows of the south-west block
-    add('plant', 'Zywoploty', box(7.0, -24.9, 0.05, 36.0, -23.9, 0.75, 'A1A Zywoplot'))
+        while x < 35.6:
+            if inside((x, yrow), OWN_PARK) and rnd() < 0.3:
+                car(x, yrow, 90)
+            x += 2.6
+    add('site', 'Trawniki', box(4.4, -24.0, 0.06, 36.4, -23.0, 0.2, 'A1A Trawa boisko'))
+    add('site', 'Trawniki', box(36.4, -27.0, 0.06, 39.4, -20.0, 0.2, 'A1A Trawa boisko'))   # island at the far end
+    lantern(37.9, -23.5)
 
 
 # ------------------------------------------------------------------ plants
@@ -815,6 +998,8 @@ def tree(x, y, s=1.0, z=0.0):
     """Deciduous tree: trunk and a crown made of three overlapping globes."""
     if blocked((x, y)) or on_road((x, y)):
         return
+    if 20.0 < x < 50.0 and -66.0 < y < -42.0:
+        return                            # keep the right gate and its drive in view
     TREES.append((x, y))
     m = ('A1A Korona', 'A1A Korona 2', 'A1A Korona 3')[int(rnd() * 3)]
     h = (2.4 + rnd() * 1.6) * s
@@ -908,15 +1093,22 @@ def build_plants():
                 and min(math.hypot(q[0] - g[0], q[1] - g[1]) for g in VGATES) > 5.0 and not on_road(q):
             shrub(q[0], q[1], 0.85)
         x += 2.0
-    # clipped globes at the ends of the hedge and on the forecourt lawns
-    for (x, y) in ((6.3, -24.4), (36.6, -24.4)):
-        shrub(x, y, 0.85)
+    # big clipped globes along the street half of the entrance path
+    y = GATE[1] + 2.2
+    while y < -21.0:
+        for s in (-1, 1):
+            shrub(s * 2.75, y, 0.85)
+        y += 1.9
+    for (x, y) in ((-24.0, -27.5), (-14.0, -31.0), (10.0, -41.0), (24.0, -45.5)):
+        tree(x, y, 0.45)                  # young trees on the lawn inside the street fence
+    for (x, y) in ((37.2, -30.5), (38.6, -33.0)):
+        conifer(x, y, 0.8)                # conifers by the far island
     for s in (-1, 1):
         for k in range(5):
             shrub(s * (5.0 + k * 4.8), -5.8, 0.6, 0.15)
     # shrubs in the raised planter by the garage ramp
-    for (x, y) in ((30.0, -1.5), (32.0, 1.5), (34.0, -2.5), (30.5, 2.0), (36.0, -4.0), (34.0, 1.0),
-                   (37.5, -1.0), (38.5, 3.0), (36.0, 4.5), (39.0, -3.5), (33.5, 4.2)):
+    for (x, y) in ((29.5, 1.5), (31.5, 3.6), (30.5, -1.5), (33.0, 0.5), (35.0, 3.5), (36.5, -1.0),
+                   (38.5, 2.5), (38.5, -3.5), (34.5, -4.0), (32.0, -3.0), (36.8, 5.0), (39.8, -0.5)):
         shrub(x, y, 0.85, 0.95)
     LOG.append('trees: %d' % len(TREES))
 
@@ -963,7 +1155,7 @@ def flush(prefix):
 def delete_shapes(prefix):
     old = List[ElementId]()
     for e in FilteredElementCollector(doc).OfClass(DirectShape):
-        if e.Name.startswith(prefix) or not (e.Name.startswith('S-') or e.Name.startswith('B-')):
+        if e.Name.startswith(prefix) or not (e.Name[:2] in ('S-', 'B-', 'P-')):
             old.Add(e.Id)
     if old.Count:
         doc.Delete(old)
@@ -987,6 +1179,16 @@ def setup_levels():
         except Exception:
             pass
     return lv[:len(want)]
+
+
+def basement_level():
+    for l in FilteredElementCollector(doc).OfClass(Level):
+        if l.Name == 'Piwnica':
+            l.Elevation = BASE / F
+            return l
+    l = Level.Create(doc, BASE / F)
+    l.Name = 'Piwnica'
+    return l
 
 
 def type_by(cls, *frags):
@@ -1044,64 +1246,22 @@ EXT_T = 0.4
 SHELL = {}   # (level index, edge index) -> wall, with edge geometry
 
 
-def front_layout(L, f):
-    """Windows on the front facade: (offset from the middle, width, height, sill).
-    Read off the drone footage: a stone base of two storeys, three tall glazed
-    strips in the middle (floors 2-5, the centre one arched), an arched glazed
-    bay on each side (floors 2-4) and pairs of punched windows between them."""
-    out = []
-    pairs = (12.0, 23.4)
+def win_size(f, w, front, x):
+    """Window width, height and sill for an opening of clear width w on floor f."""
+    ww = round(max(0.6, w - 0.3) * 20) / 20.0
     if f == 0:
-        out.append((0.0, 3.0, 3.4, 0.05))
-        for c in (6.5, 12.0, 23.4):
-            for s in (-1, 1):
-                out.append((s * c, 3.3, 3.2, 0.4))
-        for s in (-1, 1):
-            out.append((s * 17.75, 2.6, 3.2, 0.05))
-        return out
+        return (ww, 3.1, 0.35)
     if f == 1:
-        out.append((0.0, 3.0, 2.0, 0.9))
-        for s in (-1, 1):
-            for c in (6.5, 17.75):
-                out.append((s * c, 3.4, 2.4, 0.8))
-            for c in pairs:
-                for dx in (-1.35, 1.35):
-                    out.append((s * c + dx, 1.5, 2.1, 0.8))
-        return out
+        return (ww, 2.3, 0.8)
+    big = w >= 3.5
     if f <= 4:
-        out.append((0.0, 4.6, 3.5, 0.1))
-        for s in (-1, 1):
-            out.append((s * 6.5, 3.6, 3.5, 0.1))
-            out.append((s * 17.75, 4.2, 3.5 if f < 4 else 2.7, 0.1))
-            for c in pairs:
-                for dx in (-1.35, 1.35):
-                    out.append((s * c + dx, 1.25, 1.6, 1.0))
-        return out
-    out.append((0.0, 4.6, 2.4, 0.1))
-    for s in (-1, 1):
-        out.append((s * 6.5, 3.6, 2.7, 0.1))
-        for c in (17.75,) + pairs:
-            for dx in (-1.25, 0.0, 1.25):
-                out.append((s * c + dx, 0.8, 1.2, 1.3))
-    return out
-
-
-def bay_layout(L, f):
-    """North-east end bay: glazed strip in the middle, two window columns each side."""
-    out = [(0.0, 2.8, 3.3 if f else 3.6, 0.2 if f else 0.05)]
-    for dx in (-4.9, -2.9, 2.9, 4.9):
-        out.append((dx, 1.25, 1.6 if f else 2.4, 1.0 if f else 0.9))
-    return out
-
-
-def plain_layout(L, f):
-    if L < 2.4:
-        return []
-    n = max(1, int(L / 3.1))
-    out = []
-    for i in range(n):
-        out.append((L * (i + 0.5) / n - L / 2.0, 1.25, 1.6 if f else 2.4, 1.0 if f else 0.9))
-    return out
+        if big:
+            arched = front and 14.0 < abs(x - CX) < 22.0
+            return (ww, 2.7 if (f == 4 and arched) else 3.5, 0.1)
+        return (ww, 1.7, 0.95)
+    if big:
+        return (ww, 2.5, 0.1)
+    return (ww, 1.3, 1.25)
 
 
 def build_shell(levels):
@@ -1135,42 +1295,45 @@ def build_shell(levels):
         except Exception as ex:
             LOG.append('floor %d: %s' % (f, ex))
     doc.Regenerate()
-    # windows
-    front_i, bay_i = None, None
-    for i in range(n):
-        a, b = OFFICE[i], OFFICE[(i + 1) % n]
-        L = math.hypot(b[0] - a[0], b[1] - a[1])
-        if abs(a[1]) < 0.3 and abs(b[1]) < 0.3 and L > 40:
-            front_i = i
-        if a[0] < -28.5 and b[0] < -28.5 and L > 8:
-            bay_i = i
+    # windows: every opening between two piers on the floor plans becomes a window
+    keys = ['01', '02', '03', '04', '05', '06']
     placed, bad = 0, 0
     first_window = [None]
-    for (f, i), (w, a, b) in sorted(SHELL.items()):
-        L = math.hypot(b[0] - a[0], b[1] - a[1])
-        ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
-        if i == front_i:
-            lay = front_layout(L, f)
-            # offsets are given along +X; flip if the edge runs the other way
-            if ux < 0:
-                lay = [(-o, ww, hh, ss) for (o, ww, hh, ss) in lay]
-        elif i == bay_i:
-            lay = bay_layout(L, f)
-        else:
-            lay = plain_layout(L, f)
-        for (o, ww, hh, ss) in lay:
-            if abs(o) + ww / 2.0 > L / 2.0 - 0.25:
+    for f in range(len(FL)):
+        on_floor = [(w, a, b) for (ff, i), (w, a, b) in SHELL.items() if ff == f]
+        for o in PLANS['floors'][keys[f]].get('openings', []):
+            p = o['p']
+            best = None
+            for (w, a, b) in on_floor:
+                d = dist_seg(p, a, b)
+                if best is None or d < best[0]:
+                    best = (d, w, a, b)
+            if best is None or best[0] > 0.7:
                 continue
-            x, y = (a[0] + b[0]) / 2.0 + ux * o, (a[1] + b[1]) / 2.0 + uy * o
+            d, w, a, b = best
+            L = math.hypot(b[0] - a[0], b[1] - a[1])
+            t = ((p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1])) / (L * L)
+            ww, hh, ss = win_size(f, o['w'], abs(p[1]) < 0.4, p[0])
+            if t * L - ww / 2.0 < 0.25 or (1 - t) * L - ww / 2.0 < 0.25:
+                continue
+            x, y = a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t
             try:
                 inst = doc.Create.NewFamilyInstance(P(x, y, FL[f]), window_type(ww, hh), w, levels[f], StructuralType.NonStructural)
                 inst.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM).Set(ss / F)
                 placed += 1
-                # no flipFacing here: flipping moved some windows out of the wall so they stopped cutting it
                 first_window[0] = inst
             except Exception:
                 bad += 1
-    LOG.append('windows: %d placed, %d failed' % (placed, bad))
+    # A window placed facing into the building does not cut the wall. Facing is only
+    # reliable after a regeneration, so check and flip here, not while placing.
+    doc.Regenerate()
+    turned = 0
+    for inst in FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Windows).OfClass(FamilyInstance):
+        fo, wo = inst.FacingOrientation, inst.Host.Orientation
+        if fo.X * wo.X + fo.Y * wo.Y < 0:
+            inst.flipFacing()
+            turned += 1
+    LOG.append('windows: %d placed, %d failed, %d turned to face out' % (placed, bad, turned))
     # the library glass is 90% transparent; make it read as dark reflective glazing
     if first_window[0] is not None:
         doc.Regenerate()
@@ -1182,6 +1345,11 @@ def build_shell(levels):
             else:
                 m.Color = Color(70, 74, 80)
 
+    build_facade_details()
+
+
+def build_facade_details():
+    n = len(OFFICE)
     # stone bands, arch heads, canopies and the roof plant as direct shapes
     D = 'A1A Piaskowiec ciemny'
     for (z0, z1, d) in ((0.0, 0.5, 0.06), (FL[1] - 0.35, FL[1], 0.1), (FL[2] - 0.3, FL[2], 0.18), (TOP - 0.45, TOP, 0.5)):
@@ -1195,26 +1363,40 @@ def build_shell(levels):
     K, M = 'A1A Szklo kurtynowe', 'A1A Slusarka'
 
     def curtain(xc, w, z0, zs, zp=None):
-        """Continuous curtain-wall glazing with a mullion grid, proud of the stone."""
+        """Continuous curtain-wall glazing with a mullion grid. On the real building
+        the glass sits flush in the stone, so the panel is only 2 cm proud (enough to
+        cover the slab edges) and the mullions 3 cm more."""
         if zp:
-            add('win', 'Sciany kurtynowe', arched_panel(xc, w, z0, zs, zp, 0.0, K, 0.1))
+            add('win', 'Sciany kurtynowe', arched_panel(xc, w, z0, zs, zp, 0.02, K, 0.04))
         else:
-            add('win', 'Sciany kurtynowe', box(xc - w / 2.0, -0.1, z0, xc + w / 2.0, 0.0, zs, K))
+            add('win', 'Sciany kurtynowe', box(xc - w / 2.0, -0.02, z0, xc + w / 2.0, 0.02, zs, K))
         for k in range(5):
             x = xc + w * (k / 4.0 - 0.5)
-            add('win', 'Szprosy', box(x - 0.04, -0.17, z0, x + 0.04, -0.1, zs, M))
+            add('win', 'Szprosy', box(x - 0.03, -0.05, z0, x + 0.03, -0.02, zs, M))
         z = z0
         while z <= zs + 0.01:
-            add('win', 'Szprosy', box(xc - w / 2.0, -0.17, z - 0.04, xc + w / 2.0, -0.1, z + 0.04, M))
+            add('win', 'Szprosy', box(xc - w / 2.0, -0.05, z - 0.03, xc + w / 2.0, -0.02, z + 0.03, M))
             z += 1.23
 
-    curtain(0.0, 4.6, FL[2] + 0.1, FL[5] + 2.4, FL[5] + 3.2)
+    curtain(CX, 5.6, FL[2] + 0.1, FL[5] + 2.4, FL[5] + 3.2)
     for s in (-1, 1):
-        curtain(s * 6.5, 3.6, FL[2] + 0.1, FL[5] + 2.8)
-        curtain(s * 17.75, 4.2, FL[2] + 0.1, FL[5] - 0.9, FL[5] + 0.4)
-    add('win', 'Sciany kurtynowe', arched_panel(0.0, 3.0, FL[1] + 0.9, FL[1] + 2.9, FL[1] + 3.35, 0.0, K))
-    # entrances: door frames, glass canopies on brackets, stone surrounds, door mats
-    for (xc, w, main) in ((0.0, 3.0, True), (-17.75, 2.6, False), (17.75, 2.6, False)):
+        curtain(CX + s * 6.55, 4.3, FL[2] + 0.1, FL[5] + 2.8)
+        curtain(CX + s * 18.0, 4.1, FL[2] + 0.1, FL[5] - 0.9, FL[5] + 0.4)
+    # Central part of the front, after the photograph of the real facade: stone piers
+    # between the three glazed bays stand slightly proud and carry a raised attic.
+    ST = 'A1A Piaskowiec'
+    for (xa, xb) in ((-9.75, -8.75), (-4.35, -2.85), (2.85, 4.35), (8.75, 9.75)):
+        add('wall', 'Ryzalit srodkowy', box(CX + xa, -0.12, FL[2], CX + xb, 0.0, TOP + 0.9, ST))
+    add('wall', 'Ryzalit srodkowy', box(CX - 9.75, -0.12, FL[5] + 3.3, CX + 9.75, 0.0, TOP + 0.9, ST))
+    add('wall', 'Ryzalit srodkowy', box(CX - 9.75, -0.12, TOP, CX + 9.75, 0.9, TOP + 0.9, ST))
+    add('wall', 'Gzymsy', box(CX - 10.05, -0.42, TOP + 0.9, CX + 10.05, 1.0, TOP + 1.05, D))
+    # Entrance portal: stone infill with an arched window on the first floor and,
+    # above it, the stone band that carries the name of the building.
+    add('wall', 'Portal wejsciowy', box(CX - 2.95, -0.04, FL[1] + 0.55, CX + 2.95, 0.0, FL[2] - 0.3, ST))
+    add('win', 'Sciany kurtynowe', arched_panel(CX, 3.0, FL[1] + 0.75, FL[1] + 1.9, FL[1] + 2.45, -0.04, K, 0.03))
+    add('wall', 'Tablica z nazwa', box(CX - 2.6, -0.07, FL[1] + 2.62, CX + 2.6, -0.04, FL[1] + 3.3, D))
+    # entrances: door frames, glass canopies on brackets, door mats
+    for (xc, w, main) in ((CX, 3.0, True), (-19.4, 1.6, False), (19.1, 1.6, False)):
         for x in (xc - w / 2.0, xc, xc + w / 2.0):
             add('win', 'Szprosy', box(x - 0.04, -0.1, 0.05, x + 0.04, 0.0, 3.2, M))
         for z in (2.3, 3.2):
@@ -1227,14 +1409,10 @@ def build_shell(levels):
         add('mech', 'Zadaszenia', box(xc - w / 2.0 - 0.5, -d, zc - 0.1, xc + w / 2.0 + 0.5, -d + 0.08, zc + 0.08, 'A1A Stal'))
         for x in (xc - w / 2.0 - 0.4, xc + w / 2.0 + 0.4):
             add('mech', 'Zadaszenia', box(x - 0.04, -d, zc - 0.12, x + 0.04, 0, zc, 'A1A Stal'))
-        pw = 0.45 if main else 0.3
-        for s in (-1, 1):
-            x = xc + s * (w / 2.0 + 0.2 + pw)
-            add('wall', 'Gzymsy', box(x - pw, -0.2, 0, x + pw, 0, (FL[2] + 0.4) if main else FL[1] - 0.35, D))
         add('site', 'Wycieraczki', box(xc - w / 2.0, -1.3, 0.07, xc + w / 2.0, -0.05, 0.1, 'A1A Stal'))
     # tenant boards beside the main entrance
     for s in (-1, 1):
-        add('mech', 'Tablice najemcow', box(s * 2.75 - 0.3, -0.26, 1.2, s * 2.75 + 0.3, -0.2, 2.3, 'A1A Stal'))
+        add('mech', 'Tablice najemcow', box(CX + s * 3.4 - 0.3, -0.26, 1.2, CX + s * 3.4 + 0.3, -0.2, 2.3, 'A1A Stal'))
     BL = 'A1A Blacha'
     Z = TOP + 1.0
     add('mech', 'Dach - wentylacja', box(-17, 11.5, Z, 15, 14.0, Z + 1.4, BL))
@@ -1251,128 +1429,208 @@ def build_shell(levels):
         add('mech', 'Dach - panele PV', box(4 + i * 4.2, 16.0 - i * 1.3, Z, 7.6 + i * 4.2, 18.2 - i * 1.3, Z + 0.15, 'A1A Stal'))
 
 
-def back_y(x):
-    """Inner line of the rear wall at a given X (centre line of the exterior wall)."""
-    if x < -17.7:
-        return 23.48 - 0.2
-    if x <= 3.61:
-        return 22.29 - 0.2
-    if x <= 5.09:
-        return 22.29 + (x - 3.61) * (25.77 - 22.29) / (5.09 - 3.61) - 0.25
-    return 25.77 - (x - 5.09) * 0.3658 - 0.22
+TH_CLASSES = (0.10, 0.12, 0.15, 0.20, 0.25, 0.30, 0.40)
+WTYPES = {}
+DTYPES = {}
 
 
-def build_interior(levels):
-    part = type_by(WallType, '138 mm')
-    door = None
+def inner_wall_type(th, concrete=False):
+    th = min(TH_CLASSES, key=lambda c: abs(c - th))
+    key = (th, concrete)
+    if key not in WTYPES:
+        name = ('A1A Sciana zelbet %d' if concrete else 'A1A Sciana wewn %d') % int(round(th * 1000))
+        WTYPES[key] = wall_type(name, ('200 mm',), 'A1A Beton' if concrete else 'A1A Tynk bialy', th)
+    return WTYPES[key]
+
+
+def door_type(w):
+    w = 0.8 if w < 0.85 else 0.9 if w < 0.97 else 1.0 if w < 1.12 else 1.2
+    if w in DTYPES:
+        return DTYPES[w]
+    base, sym = None, None
+    name = 'A1A drzwi %d' % int(w * 1000)
     for s in FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Doors).OfClass(FamilySymbol):
-        if '0915 x 2134' in Element.Name.GetValue(s):
-            door = s
-    if door is not None and not door.IsActive:
-        door.Activate()
-    doc.Regenerate()
-    nw, nd, nr = 0, 0, 0
-    X0, X1 = -18.4, 24.0          # corridor runs between the two end units
-    YC0, YC1 = 9.6, 11.6
-    front_x = [X0 + 5.3 * k for k in range(9)]
-    front_x[-1] = X1
-    rear_ne = [X0, -12.2, -6.0]
-    core = [-6.0, -1.0, 4.0]
-    rear_sw = [4.0, 9.0, 14.0, 19.0, X1]
-    for f in range(len(FL)):
-        h = (FL[f + 1] if f + 1 < len(FL) else TOP) - FL[f] - 0.3
-        lvl = levels[f]
+        n = Element.Name.GetValue(s)
+        if n == name:
+            sym = s
+        if '0915 x 2134' in n:
+            base = s
+    if sym is None:
+        sym = base.Duplicate(name)
+        for bip in (BuiltInParameter.DOOR_WIDTH, BuiltInParameter.FAMILY_WIDTH_PARAM):
+            p = sym.get_Parameter(bip)
+            if p is not None and not p.IsReadOnly:
+                p.Set(w / F)
+                break
+    if not sym.IsActive:
+        sym.Activate()
+    DTYPES[w] = sym
+    return sym
 
-        def wall(a, b):
-            return Wall.Create(doc, Line.CreateBound(P(a[0], a[1], FL[f]), P(b[0], b[1], FL[f])), part.Id, lvl.Id, h / F, 0.0, False, False)
 
-        def put_door(w, x, y):
-            if door is None:
-                return 0
-            try:
-                doc.Create.NewFamilyInstance(P(x, y, FL[f]), door, w, lvl, StructuralType.NonStructural)
-                return 1
-            except Exception:
-                return 0
-
-        walls = []
-        wf = wall((X0, YC0), (X1, YC0))            # corridor, front side
-        wr = wall((X0, YC1), (X1, YC1))            # corridor, rear side
-        we1 = wall((X0, 0.2), (X0, back_y(X0)))    # wall of the north-east unit
-        we2 = wall((X1, 0.2), (X1, back_y(X1)))    # wall of the south-west unit
-        walls += [wf, wr, we1, we2]
-        for x in front_x[1:-1]:
-            if f == 0 and abs(x - 0.15) < 3.0:
-                continue                            # entrance hall spans two bays on the ground floor
-            walls.append(wall((x, 0.2), (x, YC0)))
-        for x in rear_ne[1:] + core[1:] + rear_sw[1:-1]:
-            walls.append(wall((x, YC1), (x, back_y(x))))
-        # north-east unit (lokal x.01), laid out after the 2.01/2.09 letting plan
-        XE = -27.1
-        walls.append(wall((XE, 18.1), (-22.2, 18.1)))
-        walls.append(wall((-24.6, 18.1), (-24.6, back_y(-24.6))))
-        wk = wall((-22.2, 16.4), (-22.2, back_y(-22.2)))
-        walls.append(wk)
-        walls.append(wall((-22.2, 16.4), (X0, 16.4)))
-        wfr = wall((-28.9, 7.4), (X0, 7.4))        # starts at the inner face of the projecting bay
-        walls.append(wfr)
-        walls.append(wall((-22.8, 0.2), (-22.8, 7.4)))
-        walls.append(wall((-20.6, 11.0), (X0, 11.0)))
-        walls.append(wall((-20.6, 11.0), (-20.6, 14.2)))
-        walls.append(wall((-20.6, 14.2), (X0, 14.2)))
-        nw += len(walls)
-        doc.Regenerate()
-        # doors
-        for k in range(len(front_x) - 1):
-            nd += put_door(wf, (front_x[k] + front_x[k + 1]) / 2.0, YC0)
-        for xs in (rear_ne, core, rear_sw):
-            for k in range(len(xs) - 1):
-                nd += put_door(wr, (xs[k] + xs[k + 1]) / 2.0, YC1)
-        nd += put_door(we1, X0, 10.3)
-        nd += put_door(we2, X1, 10.6)
-        nd += put_door(wfr, -25.0, 7.4)
-        nd += put_door(wfr, -20.8, 7.4)
-        nd += put_door(wk, -22.2, 17.3)
-        # rooms
-        doc.Regenerate()
-        num = [0]
-
-        def room(x, y, name):
-            try:
-                r = doc.Create.NewRoom(lvl, UV(x / F, y / F))
-                num[0] += 1
-                r.Name = name
-                r.Number = '%d.%02d' % (f, num[0])
-                return 1
-            except Exception:
-                return 0
-
-        unit = 'Lokal %d.01' % (f + 1)
-        nr += room(-23.5, 12.5, unit + ' - open space')
-        nr += room(-25.8, 20.5, unit + ' - gabinet 1')
-        nr += room(-23.4, 20.5, unit + ' - gabinet 2')
-        nr += room(-20.3, 19.8, unit + ' - sala spotkan')
-        nr += room(-25.0, 3.8, unit + ' - pokoj 1')
-        nr += room(-20.6, 3.8, unit + ' - pokoj 2')
-        nr += room(-19.5, 12.6, unit + ' - aneks i WC')
-        for k in range(len(front_x) - 1):
-            xm = (front_x[k] + front_x[k + 1]) / 2.0
-            if f == 0 and abs(front_x[k + 1] - 0.15) < 3.0:
+def dedupe(walls):
+    """Drop a wall when a thicker parallel wall covers most of it."""
+    keep = []
+    for i, w in enumerate(walls):
+        a, b = w['a'], w['b']
+        L = math.hypot(b[0] - a[0], b[1] - a[1])
+        if L < 0.2:
+            continue
+        ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
+        drop = False
+        for j, v in enumerate(walls):
+            if j == i or v['th'] < w['th'] or (v['th'] == w['th'] and j > i):
                 continue
-            if f == 0 and abs(front_x[k] - 0.15) < 3.0:
-                nr += room(0.15, 5.0, 'Hol wejsciowy')
+            c, d = v['a'], v['b']
+            Lv = math.hypot(d[0] - c[0], d[1] - c[1])
+            if Lv < 0.2:
                 continue
-            nr += room(xm, 5.0, ('Lokal uslugowy %d' if f == 0 else 'Biuro front %d') % (k + 1))
-        nr += room(0.0, 10.6, 'Korytarz')
-        for k in range(len(rear_ne) - 1):
-            nr += room((rear_ne[k] + rear_ne[k + 1]) / 2.0, 16.5, 'Biuro tyl %d' % (k + 1))
-        nr += room(-3.5, 16.5, 'Klatka schodowa')
-        nr += room(1.5, 16.5, 'Windy i sanitariaty')
-        for k in range(len(rear_sw) - 1):
-            nr += room((rear_sw[k] + rear_sw[k + 1]) / 2.0, 16.0, 'Biuro tyl %d' % (k + 3))
-        nr += room(29.0, 12.0, 'Lokal %d.02' % (f + 1))
-    LOG.append('interior walls: %d, doors: %d, rooms: %d' % (nw, nd, nr))
+            if abs(((d[0] - c[0]) * uy - (d[1] - c[1]) * ux) / Lv) > 0.05:
+                continue
+            off = abs((c[0] - a[0]) * uy - (c[1] - a[1]) * ux)
+            if off > (w['th'] + v['th']) / 2.0 + 0.05:
+                continue
+            s0, s1 = sorted(((c[0] - a[0]) * ux + (c[1] - a[1]) * uy, (d[0] - a[0]) * ux + (d[1] - a[1]) * uy))
+            if min(s1, L) - max(s0, 0.0) > 0.6 * L:
+                drop = True
+                break
+        if not drop:
+            keep.append(i)
+    return keep
 
+
+ROOM_NAMES = {'0.1': 'Garaz', '0.10': 'Klatka schodowa', '0.12': 'Pomieszczenie techniczne',
+              '0.13': 'Pomieszczenie techniczne', '0.14': 'Pomieszczenie techniczne'}
+
+
+def room_name(label):
+    if label in ROOM_NAMES:
+        return ROOM_NAMES[label]
+    if '.K.' in label:
+        return 'Czesc wspolna'
+    if label.startswith('0.'):
+        return 'Komorka lokatorska'
+    return 'Lokal'
+
+
+def plan_view_for(lvl):
+    """A floor plan of the level, used as the owner view of room separation lines."""
+    name = 'A1A Robocze - %s' % lvl.Name
+    for v in FilteredElementCollector(doc).OfClass(ViewPlan):
+        if v.Name == name and not v.IsTemplate:
+            return v
+    pft = [x for x in FilteredElementCollector(doc).OfClass(ViewFamilyType) if x.ViewFamily == ViewFamily.FloorPlan][0]
+    v = ViewPlan.Create(doc, pft.Id, lvl.Id)
+    v.Name = name
+    return v
+
+
+def build_plans(levels, base):
+    LV = {'00': (base, BASE, 0.0), '01': (levels[0], FL[0], FL[1]), '02': (levels[1], FL[1], FL[2]),
+          '03': (levels[2], FL[2], FL[3]), '04': (levels[3], FL[3], FL[4]), '05': (levels[4], FL[4], FL[5]),
+          '06': (levels[5], FL[5], TOP)}
+    ftype = type_by(FloorType, '300 mm')
+    try:
+        Floor.Create(doc, List[CurveLoop]([loop3([P(x, y, 0) for (x, y) in ccw(GARAGE)])]), ftype.Id, base.Id)
+    except Exception as ex:
+        LOG.append('garage slab: %s' % ex)
+    stats = []
+    for key in sorted(LV):
+        lvl, z0, z1 = LV[key]
+        fl = PLANS['floors'][key]
+        h = (z1 - z0) - 0.3
+        walls = fl['walls']
+        made = {}
+        for i in dedupe(walls):
+            w = walls[i]
+            a, b = w['a'], w['b']
+            mid = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+            if key == '00':
+                if not inside(mid, GARAGE) and not inside(a, GARAGE):
+                    continue                    # ramp walls outside are modelled with the site
+            elif not inside(mid, OFFICE):
+                continue
+            try:
+                wt = inner_wall_type(w['th'], concrete=(key == '00' or w['th'] >= 0.24))
+                made[i] = Wall.Create(doc, Line.CreateBound(P(a[0], a[1], z0), P(b[0], b[1], z0)),
+                                      wt.Id, lvl.Id, h / F, 0.0, False, False)
+            except Exception:
+                fail('plan wall')
+        doc.Regenerate()
+        nd = 0
+        for d in fl['doors']:
+            host = made.get(d['wall'])
+            if host is None:
+                continue
+            try:
+                doc.Create.NewFamilyInstance(P(d['p'][0], d['p'][1], z0), door_type(d['w']), host, lvl,
+                                             StructuralType.NonStructural)
+                nd += 1
+            except Exception:
+                fail('door')
+        # openings without doors: room separation lines keep them open but close the rooms
+        seps = fl.get('seps', [])
+        if seps:
+            try:
+                view = plan_view_for(lvl)
+                sp = SketchPlane.Create(doc, Plane.CreateByNormalAndOrigin(XYZ.BasisZ, P(0, 0, z0)))
+                ca = CurveArray()
+                for (a, b) in seps:
+                    if math.hypot(b[0] - a[0], b[1] - a[1]) > 0.05:
+                        ca.Append(Line.CreateBound(P(a[0], a[1], z0), P(b[0], b[1], z0)))
+                doc.Create.NewRoomBoundaryLines(sp, ca, view)
+            except Exception as ex:
+                LOG.append('separation lines %s: %s' % (key, ex))
+        for c in fl['columns']:
+            x, y = c['c']
+            add('wall', 'Slupy', box(x - c['w'] / 2.0, y - c['h'] / 2.0, z0, x + c['w'] / 2.0, y + c['h'] / 2.0, z1 - 0.3, 'A1A Beton'))
+        doc.Regenerate()
+        nr = 0
+        unnamed = [0]
+        for r in fl['rooms']:
+            x, y = r['p']
+            if key == '00':
+                if not inside((x, y), GARAGE):
+                    continue
+            elif not inside((x, y), OFFICE):
+                continue
+            try:
+                rm = doc.Create.NewRoom(lvl, UV(x / F, y / F))
+                label = r.get('label') or ''
+                nn = r.get('n', 1)
+                unnamed[0] += 0 if label else 1
+                if key == '00' and r.get('model_area', 0) > 500:
+                    rm.Number, rm.Name = '0.1', 'Garaz'
+                elif label:
+                    rm.Number = label if nn == 1 else '%s-%d' % (label, nn)
+                    rm.Name = room_name(label)
+                else:
+                    rm.Number = '%s.x%d' % (key[1], unnamed[0])
+                    rm.Name = 'Pomieszczenie'
+                if r.get('area'):
+                    cp = rm.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
+                    if cp is not None:
+                        cp.Set('Powierzchnia wg rzutu: %.2f m2' % r['area'])
+                nr += 1
+            except Exception:
+                fail('room')
+        stats.append('%s: %d walls, %d doors, %d rooms, %d columns' % (key, len(made), nd, nr, len(fl['columns'])))
+    # parking bays in the garage: painted lines and parked cars
+    for b in PLANS['floors']['00'].get('bays', []):
+        x, y = b['p']
+        if not inside((x, y), GARAGE) or abs(x + 3.6) < 0.6 and abs(y - 4.1) < 0.6:
+            continue
+        ax = b['axis']
+        hw, hl = 1.25, 2.5
+        if ax == 'x':
+            corners = [(x - hl, y - hw), (x + hl, y - hw), (x + hl, y + hw), (x - hl, y + hw)]
+        else:
+            corners = [(x - hw, y - hl), (x + hw, y - hl), (x + hw, y + hl), (x - hw, y + hl)]
+        for k in range(4):
+            add('site', 'Garaz - linie', seg(corners[k], corners[(k + 1) % 4], 0.1, BASE + 0.005, BASE + 0.02, 'A1A Tynk bialy'))
+        if rnd() < 0.6:
+            car(x, y, 0 if ax == 'x' else 90, BASE)
+    LOG.append('plans: ' + '; '.join(stats))
 
 def delete_class(cls, bic=None):
     old = List[ElementId]()
@@ -1447,7 +1705,7 @@ def stage_shell():
     flush('B-')
 
 
-def stage_interior():
+def stage_plans():
     make_materials()
     delete_class(None, BuiltInCategory.OST_Rooms)
     old = List[ElementId]()
@@ -1455,21 +1713,44 @@ def stage_interior():
         if e.Category is not None and e.Category.Id == ElementId(BuiltInCategory.OST_Doors):
             old.Add(e.Id)
     for e in FilteredElementCollector(doc).OfClass(Wall):
-        if '138' in e.Name:
+        if e.Name.startswith('A1A Sciana') or '138' in e.Name:
+            old.Add(e.Id)
+    for e in FilteredElementCollector(doc).OfClass(DirectShape):
+        if e.Name.startswith('P-'):
+            old.Add(e.Id)
+    for e in FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_RoomSeparationLines).WhereElementIsNotElementType():
+        old.Add(e.Id)
+    base = basement_level()
+    for e in FilteredElementCollector(doc).OfClass(Floor):
+        if e.LevelId == base.Id:
             old.Add(e.Id)
     if old.Count:
         doc.Delete(old)
     levels = [l for l in FilteredElementCollector(doc).OfClass(Level) if l.Name in LEVEL_NAMES]
     levels.sort(key=lambda l: l.Elevation)
-    build_interior(levels)
-
+    build_plans(levels, base)
+    flush('P-')
 
 if 'site' in STAGES:
     run('A1A site', stage_site)
+def stage_facade():
+    make_materials()
+    old = List[ElementId]()
+    for e in FilteredElementCollector(doc).OfClass(DirectShape):
+        if e.Name.startswith('B-'):
+            old.Add(e.Id)
+    if old.Count:
+        doc.Delete(old)
+    build_facade_details()
+    flush('B-')
+
+
+if 'facade' in STAGES:
+    run('A1A facade', stage_facade)
 if 'shell' in STAGES:
     run('A1A shell', stage_shell)
-if 'interior' in STAGES:
-    run('A1A interior', stage_interior)
+if 'plans' in STAGES or 'interior' in STAGES:
+    run('A1A plans', stage_plans)
 if FAIL:
     LOG.append('skipped solids: %s' % FAIL)
 print('\n'.join(LOG))
