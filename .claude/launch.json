@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "abrahama-strona",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-3.11", "abrahama-1a/strona/serve.py", "8141"],
+      "port": 8141
+    }
+  ]
+}

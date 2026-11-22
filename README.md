@@ -8,5 +8,6 @@ Each folder follows one article on [archaiflow.com/research](https://archaiflow.
 - [Revit to InDesign](revit-to-indesign/guide.md)
 - [Revit to Notion to InDesign](revit-to-notion-to-indesign/guide.md)
 - [Revit to Website](revit-to-website/guide.md)
+- [Revit to Home Tour](revit-to-home-tour/guide.md)
 - [Revit to After Effects](revit-to-after-effects/guide.md)
 - [Photoshop Looks, Six at Once](photoshop-looks-six-at-once/guide.md)
